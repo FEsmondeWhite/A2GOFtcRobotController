@@ -1,0 +1,364 @@
+package org.firstinspires.ftc.teamcode.gobot;
+import com.qualcomm.robotcore.hardware.HardwareMap;
+import org.firstinspires.ftc.robotcore.external.Telemetry;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.ExposureControl;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.GainControl;
+import org.firstinspires.ftc.vision.VisionPortal;
+import org.firstinspires.ftc.vision.VisionProcessor;
+import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
+import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
+import android.util.Size;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * A utility class for initializing the Vision Portal and AprilTag Processor
+ * and providing methods for reading specific AprilTags for autonomous tasks.
+ */
+public class AprilTagVisionProcessor {
+
+    // --- Configuration Constants ---
+    private static final String CAMERA_NAME = "Webcam 1";
+
+    // AprilTag IDs (Assuming FTC Power Play 2022/2023 or similar field)
+    private static final int BLUE_GOAL_ID = 20; // Blue Alliance Goal Tag
+    private static final int RED_GOAL_ID = 24;  // Red Alliance Goal Tag
+    private static final List<Integer> OBELISK_PATTERN_IDS = Arrays.asList(21, 22, 23); // Pattern Tags
+
+    // 0. General Vision System Settings
+    // Set to true to fully disable the preview stream to the Driver Station to save CPU/Bandwidth.
+    private static final boolean DISABLE_DS_PREVIEW = true;
+
+    // 1. Resolution Settings
+    // Set to 'true' to use the resolution defined below (MANUAL), or 'false' for default/auto (AUTO).
+    private static final boolean USE_MANUAL_RESOLUTION = true;
+    private static final int MANUAL_RESOLUTION_WIDTH = 640;
+    private static final int MANUAL_RESOLUTION_HEIGHT = 480;
+    /*
+     * CAMERA RESOLUTION OPTIONS (Logitech C920 is commonly used):
+     * Resolutions with built-in calibration for AprilTag pose:
+     * 640x480 (Default), 640x360, 800x448, 800x600, 864x480, 1920x1080.
+     * Use a resolution that has built-in calibration for best pose estimation accuracy.
+     * Lower resolutions (e.g., 640x480) save CPU/bandwidth and increase frame rate.
+     */
+
+    // 2. Exposure Settings
+    // Set to 'true' to use the exposure defined below (MANUAL), or 'false' for default/auto (AUTO).
+    private static final boolean USE_MANUAL_EXPOSURE = true;
+    private static final long MANUAL_EXPOSURE_MS = 6;
+    /*
+     * EXPOSURE OPTIONS (Logitech C920 range): 0 to 204 ms.
+     * Low exposure (e.g., 5-10 ms) is best for reducing motion blur, which is critical
+     * for accurate pose estimation when the robot is moving.
+     */
+
+    // 3. Gain Settings
+    // Set to 'true' to use the gain defined below (MANUAL), or 'false' for default/auto (AUTO).
+    private static final boolean USE_MANUAL_GAIN = true;
+    private static final int MANUAL_GAIN = 250;
+    /*
+     * GAIN OPTIONS (Logitech C920 range): 0 to 255.
+     * High gain (e.g., 200-255) is often necessary to compensate for low manual exposure.
+     * Set exposure first to minimize blur, then increase gain until the AprilTags are clearly visible.
+     */
+
+    // 4. AprilTag Processor Settings (CRITICAL for Pose Accuracy)
+    // The physical size of the AprilTag squares in inches (e.g., 2.5 inches for PowerPlay large tags).
+    // This value MUST be accurate for pose estimation (range/bearing) to be correct.
+    private static final double TAG_SIZE_INCHES = 2.5;
+    // The AprilTag family (e.g., AprilTagProcessor.TagFamily.TAG_36h11)
+    private static final AprilTagProcessor.TagFamily TAG_FAMILY = AprilTagProcessor.TagFamily.TAG_36h11;
+
+
+    // --- Vision Components ---
+    private final AprilTagProcessor aprilTagProcessor;
+    private VisionPortal visionPortal;
+
+    // --- Alliance and Target Data ---
+    private final int teamColor;
+    private final int goalTagId;
+
+    // --- Telemetry for Debugging ---
+    private final Telemetry telemetry;
+
+    // --- Stored Results for Obelisk Pattern ---
+    private int detectedPatternId = -1;
+    private List<Character> storedColorPattern = Collections.emptyList();
+
+    /**
+     * Initializes the AprilTag vision system.
+     *
+     * @param hardwareMap The robot's hardware map.
+     * @param telemetry The OpMode telemetry object for status updates.
+     * @param teamColor 1 for Blue Alliance, 2 for Red Alliance.
+     */
+    public AprilTagVisionProcessor(HardwareMap hardwareMap, Telemetry telemetry, int teamColor) {
+        this.telemetry = telemetry;
+        this.teamColor = teamColor;
+
+        // 1. Determine the target Goal Tag ID based on alliance color
+        this.goalTagId = (teamColor == 1) ? BLUE_GOAL_ID : RED_GOAL_ID;
+
+        // 2. Build the AprilTag Processor
+        aprilTagProcessor = new AprilTagProcessor.Builder()
+                // Set the correct physical size of the tags for accurate pose estimation
+                .setTagsize(TAG_SIZE_INCHES)
+                // Set the tag family (36h11 is standard for FTC)
+                .setTagFamily(TAG_FAMILY)
+                .build();
+
+        // 3. Initialize and Start the Vision Portal
+        initVisionPortal(hardwareMap);
+
+        // 4. Apply Manual Camera Controls (if configured)
+        applyManualCameraControls();
+
+        telemetry.addData("Vision Status", "Initialized");
+        telemetry.addData("Team Alliance", (teamColor == 1 ? "Blue" : "Red"));
+        telemetry.addData("Goal Target ID", goalTagId);
+        telemetry.addData("Tag Size", TAG_SIZE_INCHES + " inches");
+        telemetry.addData("DS Preview", DISABLE_DS_PREVIEW ? "DISABLED (High Performance)" : "ENABLED");
+        telemetry.update();
+    }
+
+    /**
+     * Initializes the Vision Portal with the specified camera and processor.
+     * @param hardwareMap The robot's hardware map.
+     */
+    private void initVisionPortal(HardwareMap hardwareMap) {
+        // Find the camera by name
+        WebcamName webcamName = hardwareMap.get(WebcamName.class, CAMERA_NAME);
+
+        // Build the VisionPortal
+        VisionPortal.Builder builder = new VisionPortal.Builder()
+                .setCamera(webcamName)
+                .addProcessor(aprilTagProcessor);
+
+        // --- Apply Vision Portal General Settings ---
+
+        // 1. Disable Driver Station Preview if configured
+        if (DISABLE_DS_PREVIEW) {
+            // Setting the display window to none saves CPU/bandwidth
+            builder.setStreamFormat(VisionPortal.StreamFormat.NONE);
+        }
+
+        // 2. Apply manual resolution settings if enabled
+        if (USE_MANUAL_RESOLUTION) {
+            builder.setCameraResolution(new Size(MANUAL_RESOLUTION_WIDTH, MANUAL_RESOLUTION_HEIGHT));
+        }
+
+        visionPortal = builder.build();
+    }
+
+    /**
+     * Applies manual exposure and gain settings if enabled in the configuration.
+     * This must be called *after* the vision portal has been built and is streaming.
+     */
+    private void applyManualCameraControls() {
+        // Wait until the portal is ready to accept camera control changes
+        while (visionPortal.getCameraState() != VisionPortal.CameraState.STREAMING) {
+            // Wait for the camera to open and start streaming
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+
+        // Apply Manual Exposure
+        if (USE_MANUAL_EXPOSURE) {
+            ExposureControl exposureControl = visionPortal.getCameraControl(ExposureControl.class);
+            if (exposureControl.isModeSupported(ExposureControl.Mode.Manual)) {
+                exposureControl.setMode(ExposureControl.Mode.Manual);
+                exposureControl.setExposure(MANUAL_EXPOSURE_MS, TimeUnit.MILLISECONDS);
+                telemetry.addData("Manual Exposure Set", MANUAL_EXPOSURE_MS + "ms");
+            } else {
+                telemetry.addLine("Warning: Manual Exposure Mode not supported by camera.");
+            }
+        }
+
+        // Apply Manual Gain
+        if (USE_MANUAL_GAIN) {
+            GainControl gainControl = visionPortal.getCameraControl(GainControl.class);
+            if (gainControl != null) {
+                gainControl.setGain(MANUAL_GAIN);
+                telemetry.addData("Manual Gain Set", MANUAL_GAIN);
+            } else {
+                telemetry.addLine("Warning: Gain Control not available.");
+            }
+        }
+    }
+
+    /*
+     * COMPETITION OPTIMIZATION NOTES:
+     *
+     * 1. RESOLUTION:
+     * - Start with 640x480. It's the standard and has built-in calibration.
+     * - Only increase resolution (e.g., to 1280x720 or 1920x1080) if your robot must read tags from very far away.
+     * - Increasing resolution dramatically increases CPU load and decreases frame rate, which can hurt performance while driving.
+     *
+     * 2. EXPOSURE & GAIN: (Use the ConceptAprilTagOptimizeExposure OpMode in the samples folder for best results)
+     * - The #1 priority for AprilTag localization is minimizing motion blur.
+     * - **ALWAYS** set USE_MANUAL_EXPOSURE = true.
+     * - Find the shortest `MANUAL_EXPOSURE_MS` (e.g., 6ms) that still allows the AprilTags to be clearly detected. Lower is better.
+     * - Set USE_MANUAL_GAIN = true.
+     * - Use `MANUAL_GAIN` to compensate for the low exposure. Start high (e.g., 250) and reduce it until the image has just enough light to detect the tags reliably. Too high can introduce noise.
+     * - Test these values under the specific lighting conditions of the competition venue, if possible.
+     *
+     * 3. TAG SIZE:
+     * - Ensure TAG_SIZE_INCHES is set to the physical dimension of the AprilTag squares being used in the competition. This is essential for accurate pose data.
+     */
+
+
+    /**
+     * Identifies which of the pattern codes (21, 22, or 23) is currently visible and stores the result.
+     * If a pattern has already been detected and stored (detectedPatternId != -1), it returns the stored ID immediately.
+     *
+     * @return The detected AprilTag ID (21, 22, or 23), or -1 if none are found.
+     */
+    public int getDetectedPatternCode() {
+        // Return stored ID if already detected to prevent re-processing
+        if (detectedPatternId != -1) {
+            return detectedPatternId;
+        }
+
+        List<AprilTagDetection> currentDetections = aprilTagProcessor.getDetections();
+
+        if (currentDetections.isEmpty()) {
+            return -1;
+        }
+
+        for (AprilTagDetection detection : currentDetections) {
+            int detectedId = detection.id;
+            // Check if the detected ID is one of the desired pattern tags
+            if (OBELISK_PATTERN_IDS.contains(detectedId)) {
+                // Store the result before returning
+                detectedPatternId = detectedId;
+                storedColorPattern = mapIdToColorPattern(detectedId);
+
+                telemetry.addData("Pattern Found & Stored", detectedId);
+                telemetry.update();
+                return detectedId;
+            }
+        }
+
+        // If no relevant pattern tag was found
+        return -1;
+    }
+
+    /**
+     * Internal helper method to map a pattern ID to its color sequence.
+     */
+    private List<Character> mapIdToColorPattern(int patternId) {
+        switch (patternId) {
+            case 21:
+                return Arrays.asList('G', 'P', 'P'); // Green, Purple, Purple
+            case 22:
+                return Arrays.asList('P', 'G', 'P'); // Purple, Green, Purple
+            case 23:
+                return Arrays.asList('P', 'P', 'G'); // Purple, Purple, Green
+            default:
+                return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Finds the current pattern code (if not already found) and returns the associated
+     * artifact color pattern sequence. This method will trigger detection and storage if needed.
+     *
+     * @return A List of Characters representing the color sequence.
+     */
+    public List<Character> getArtifactColorPattern() {
+        // Call detection method to ensure the stored state is updated if a tag is visible
+        getDetectedPatternCode();
+
+        if (detectedPatternId == -1) {
+            telemetry.addLine("Pattern not detected. Returning empty list.");
+            telemetry.update();
+        }
+
+        return storedColorPattern;
+    }
+
+    /**
+     * Retrieves the last successfully detected and stored pattern code (AprilTag ID).
+     *
+     * @return The stored pattern ID (21, 22, or 23), or -1 if no pattern has been detected yet.
+     */
+    public int getStoredPatternCode() {
+        return detectedPatternId;
+    }
+
+    /**
+     * Retrieves the last successfully detected and stored artifact color pattern sequence.
+     *
+     * @return A List of Characters representing the stored color sequence.
+     */
+    public List<Character> getStoredColorPatternSequence() {
+        return storedColorPattern;
+    }
+
+    /**
+     * Finds the alliance goal tag (ID 20 or 24) and returns its pose (range, bearing, elevation).
+     *
+     * @return A double array in the order [Range, Bearing, Elevation] (in inches/degrees),
+     * or [0.0, 0.0, 0.0] if the goal tag is not detected.
+     */
+    public double[] getGoalTagPose() {
+        List<AprilTagDetection> currentDetections = aprilTagProcessor.getDetections();
+
+        for (AprilTagDetection detection : currentDetections) {
+            if (detection.id == goalTagId) {
+                // Goal tag found! Extract the pose data.
+                double range = detection.ftcPose.range;
+                double bearing = detection.ftcPose.bearing;
+                double elevation = detection.ftcPose.elevation;
+
+                telemetry.addData("Goal Tag Found", goalTagId);
+                telemetry.addData("Pose", "R:%4.1f B:%4.1f E:%4.1f", range, bearing, elevation);
+                telemetry.update();
+
+                // Return [Range, Bearing, Elevation]
+                return new double[]{range, bearing, elevation};
+            }
+        }
+
+        // If the loop finishes without finding the goal tag
+        telemetry.addLine("Alliance Goal Tag not detected.");
+        telemetry.update();
+        return new double[]{0.0, 0.0, 0.0}; // Return zeros if not found
+    }
+
+    /**
+     * Stops streaming to the AprilTag Processor to free up resources.
+     * Should be called in stop() or when the vision system is no longer needed.
+     */
+    public void stopStreaming() {
+        if (visionPortal != null) {
+            visionPortal.stopStreaming();
+            telemetry.addLine("Vision Portal Streaming Stopped.");
+            telemetry.update();
+        }
+    }
+
+    /**
+     * Optional: Allows checking the alliance goal ID for autonomous pathing logic.
+     * @return The target Goal AprilTag ID (20 or 24).
+     */
+    public int getGoalTagId() {
+        return goalTagId;
+    }
+
+    /**
+     * Optional: Allows checking the entire list of current detections.
+     * @return A list of all AprilTag detections.
+     */
+    public List<AprilTagDetection> getAllDetections() {
+        return aprilTagProcessor.getDetections();
+    }
+}
