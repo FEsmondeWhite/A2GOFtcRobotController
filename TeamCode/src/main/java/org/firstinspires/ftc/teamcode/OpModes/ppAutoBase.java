@@ -6,6 +6,7 @@ import com.pedropathing.geometry.BezierLine;
 import com.pedropathing.geometry.Pose;
 import com.pedropathing.paths.PathChain;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.hardware.LED;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.teamcode.gobot.Intake;
@@ -44,6 +45,9 @@ abstract public class ppAutoBase extends OpMode {
     //Timers and flags
     private ElapsedTime taskTimer;
     private boolean taskFlag=false;
+
+    // Declare a LED object for the indicator LEDs
+    LED redLED;
 
     private final ArrayList<PathChain> pathA = new ArrayList<>();
 
@@ -337,6 +341,11 @@ abstract public class ppAutoBase extends OpMode {
         launcher.init(hardwareMap);
         taskCount = 0;
 
+        // Initialize the LED from the hardware map
+        // The name "myLED" must match the name in your configuration file
+        redLED = hardwareMap.get(LED.class, "lockdown_LED1");
+        redLED.enable(false);
+
         // Initialize the Vision Detection utility
         vision = new VisionDetection(
                 hardwareMap,
@@ -374,6 +383,12 @@ abstract public class ppAutoBase extends OpMode {
 
         updatePath();
 
+        if (follower.isBusy()) {
+            redLED.enable(true);
+        } else {
+            redLED.enable(false);
+        }
+
         //Call this once per loop
         follower.update();
 
@@ -391,7 +406,7 @@ abstract public class ppAutoBase extends OpMode {
         PoseStorage.currentPose = follower.getPose();
     }
         // Intake
-//            intake.setIntake(2); // intake
+//            intake.setIntake(5); // intake
 //            intake.setIntake(-2); // push out
 //            intake.setIntake(0); // turn off
 
@@ -425,6 +440,7 @@ abstract public class ppAutoBase extends OpMode {
                 currentState = State.TRAJ_0;
                 break;
 
+
             //[0] Move to scan pose
             case TRAJ_0:
                 if (!follower.isBusy()) {
@@ -439,6 +455,7 @@ abstract public class ppAutoBase extends OpMode {
                     taskState = TaskState.TASK_IDLE;
                 }
                 break;
+
 
             // Scan the april tag
             case SCAN:
@@ -467,6 +484,7 @@ abstract public class ppAutoBase extends OpMode {
                     }
                 }
                 break;
+
 
             //[1] Move to shoot pose
             case TRAJ_1:
@@ -514,7 +532,8 @@ abstract public class ppAutoBase extends OpMode {
                             // Then we will move on
                             if (this.sorter.balls.targetMatchForLaunch()) {
                                 // if the correct ball is already lined up, then launch.
-                                if (!sorter.isBusy()) {
+                                if (!sorter.isBusy() && launcher.isReady()) {
+                                    // If the flywheel is at speed, then launch
                                     lifter.start(); // Lift/launch the ball
                                     taskState = TaskState.TASK_LIFTING;
                                 }
@@ -522,13 +541,14 @@ abstract public class ppAutoBase extends OpMode {
                             } else if (this.sorter.balls.targetColorAvailable()) {
                                 // if the correct ball is available, but not lined up, then sort.
                                 if (!lifter.isBusy()) {
-                                    sorter.start(1); // Lift/launch the ball
+                                    sorter.start(1); // Sort the ball
                                     taskState = TaskState.TASK_SORTING;
                                 }
 
                             } else if (this.sorter.balls.anyBallReadyForLaunch()) {
                                 // if the correct ball is not available, but we have a ball, then launch.
-                                if (!sorter.isBusy()) {
+                                if (!sorter.isBusy() && launcher.isReady()) {
+                                    // If the flywheel is at speed, then launch
                                     lifter.start(); // Lift/launch the ball
                                     taskState = TaskState.TASK_LIFTING;
                                 }
@@ -536,7 +556,7 @@ abstract public class ppAutoBase extends OpMode {
                             } else if (this.sorter.balls.anyBallAvailable()) {
                                 // if the correct ball is not available, but we do have a ball somewhere, then sort.
                                 if (!lifter.isBusy()) {
-                                    sorter.start(1); // Lift/launch the ball
+                                    sorter.start(1); // Sort the ball
                                     taskState = TaskState.TASK_SORTING;
                                 }
 
@@ -565,7 +585,7 @@ abstract public class ppAutoBase extends OpMode {
             //[2] Move in front of first stack
             case TRAJ_2:
                 if (!follower.isBusy()) {
-                    intake.setIntake(2); // intake
+                    intake.setIntake(5); // intake
                     follower.followPath(pathA.get(2), true);
                     taskState = TaskState.TASK_IDLE;
                     currentState = State.TRAJ_3;
@@ -587,7 +607,7 @@ abstract public class ppAutoBase extends OpMode {
                             break;
                         case TASK_SORTING:
                             if (!sorter.isBusy()) {
-                                intake.setIntake(2); // turn the intake back on
+                                intake.setIntake(5); // turn the intake back on
                                 follower.setMaxPower(0.2); //SLOW DOWN!!!
                                 follower.followPath(pathA.get(3), true);
                                 taskState = TaskState.TASK_IDLE;
@@ -597,6 +617,7 @@ abstract public class ppAutoBase extends OpMode {
                     }
                 }
                 break;
+
 
             //[4] Collect ball 2
             case TRAJ_4:
@@ -612,7 +633,7 @@ abstract public class ppAutoBase extends OpMode {
                             break;
                         case TASK_SORTING:
                             if (!sorter.isBusy()) {
-                                intake.setIntake(2); // turn the intake back on
+                                intake.setIntake(5); // turn the intake back on
                                 follower.followPath(pathA.get(4), true);
                                 taskState = TaskState.TASK_IDLE;
                                 currentState = State.TRAJ_5;
@@ -621,6 +642,7 @@ abstract public class ppAutoBase extends OpMode {
                     }
                 }
                 break;
+
 
             //[5] Collect ball 3
             case TRAJ_5:
@@ -636,7 +658,7 @@ abstract public class ppAutoBase extends OpMode {
                             break;
                         case TASK_SORTING:
                             if (!sorter.isBusy()) {
-                                intake.setIntake(2); // turn the intake back on
+                                intake.setIntake(5); // turn the intake back on
                                 taskState = TaskState.TASK_IDLE;
                                 taskTimer.reset(); // Start the timer. Wait 1.5 seconds to pull in ball #3.
                                 follower.followPath(pathA.get(5), true);
@@ -647,6 +669,7 @@ abstract public class ppAutoBase extends OpMode {
                 }
                 break;
 
+
             //[6] Move to shoot pose
             case TRAJ_6:
                 if (!follower.isBusy() && taskTimer.time() > 1.5) {
@@ -656,53 +679,88 @@ abstract public class ppAutoBase extends OpMode {
                     currentState = State.SHOOT_B;
                     taskFlag = false;
                     launcher.enableMotor(); // turn on flywheel
-                    taskCount = 3;
                     taskState = TaskState.TASK_IDLE;
                 }
                 break;
 
+
             //Shoot 3 Balls
             case SHOOT_B:
+                // We need to add code to look for the pattern colored balls before launching.
                 if (!follower.isBusy()) {
-                    if (!taskFlag) {
-                        //SHOOT SEQUENCE HERE
-                        if (taskCount>0) {
-                            switch (taskState) {
-                                case TASK_IDLE:
-                                    if (!sorter.isBusy()) {
-                                        lifter.start(); // Lift/launch the ball
-                                        taskState = TaskState.TASK_LIFTING;
-                                    }
-                                    break;
-                                case TASK_LIFTING:
-                                    if (!lifter.isBusy()) {
-                                        sorter.start(1); // Lift/launch the ball
-                                        taskState = TaskState.TASK_SORTING;
-                                    }
-                                    break;
-                                case TASK_SORTING:
-                                    if (!sorter.isBusy()) {
-                                        taskState = TaskState.TASK_IDLE;
-                                        taskCount=taskCount-1;
-                                        if (taskCount==0) {
-                                            launcher.disableMotor(); // turn off flywheel
-                                            taskFlag = true;
-                                        }
-                                    }
-                                    break;
+                    //SHOOT SEQUENCE HERE
+                    this.sorter.balls.updateColors();
+                    // We will look at the current task state.
+                    // If we're not doing something, then check if we have the correct ball, or can get a ball.
+                    // We will launch if have the right ball, or a ball (if the correct ball isn't available).
+                    // We will sort if there are balls, but we don't have the correct one (or any ball).
+                    // If there are no balls loaded, then we're done launching.
+                    switch (taskState) {
+                        case TASK_IDLE:
+                            // We have a list of the actual ball colors in the sorter:
+                            //   this.sorter.balls.getColorList()
+                            // We have a list of the desired pattern:
+                            //   this.colorPattern
+                            // And we know the ball we're currently wanting to launch:
+                            //   this.currentBall
+
+                            // We will shoot up to the specified number (taskCount) of balls.
+                            // First, we need to sort to line up the correct ball, if available.
+                            // Then we will shoot the ball
+                            //      we need to lift the ball
+                            // Then we will move on
+                            if (this.sorter.balls.targetMatchForLaunch()) {
+                                // if the correct ball is already lined up, then launch.
+                                if (!sorter.isBusy() && launcher.isReady()) {
+                                    // If the flywheel is at speed, then launch
+                                    lifter.start(); // Lift/launch the ball
+                                    taskState = TaskState.TASK_LIFTING;
+                                }
+
+                            } else if (this.sorter.balls.targetColorAvailable()) {
+                                // if the correct ball is available, but not lined up, then sort.
+                                if (!lifter.isBusy()) {
+                                    sorter.start(1); // Sort the ball
+                                    taskState = TaskState.TASK_SORTING;
+                                }
+
+                            } else if (this.sorter.balls.anyBallReadyForLaunch()) {
+                                // if the correct ball is not available, but we have a ball, then launch.
+                                if (!sorter.isBusy() && launcher.isReady()) {
+                                    // If the flywheel is at speed, then launch
+                                    lifter.start(); // Lift/launch the ball
+                                    taskState = TaskState.TASK_LIFTING;
+                                }
+
+                            } else if (this.sorter.balls.anyBallAvailable()) {
+                                // if the correct ball is not available, but we do have a ball somewhere, then sort.
+                                if (!lifter.isBusy()) {
+                                    sorter.start(1); // Sort the ball
+                                    taskState = TaskState.TASK_SORTING;
+                                }
+
+                            } else {
+                                // if no ball is available, then we're done. Move to the next state.
+                                taskState = TaskState.TASK_IDLE;
+                                launcher.disableMotor(); // turn off flywheel
+                                currentState = State.TRAJ_7;
+                                follower.followPath(pathA.get(7), true);
                             }
-
-                        } else {
-                            taskFlag = true;
-                        }
-
-                    } else if (taskFlag) { //&& taskTimer.time() > 2.
-                        taskFlag = false;
-                        currentState = State.TRAJ_7;
-                        follower.followPath(pathA.get(7), true);
+                            break;
+                        case TASK_LIFTING:
+                            if (!lifter.isBusy()) { // This will be true when it's done lifting
+                                taskState = TaskState.TASK_IDLE;
+                            }
+                            break;
+                        case TASK_SORTING:
+                            if (!sorter.isBusy()) { // This will be true when it's done sorting
+                                taskState = TaskState.TASK_IDLE;
+                            }
+                            break;
                     }
                 }
                 break;
+
 
             //[7] Move to STOP pose
             case TRAJ_7:

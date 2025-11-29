@@ -8,9 +8,11 @@ import com.qualcomm.robotcore.hardware.HardwareMap;
 
 public class Intake {
     private DcMotorEx motor;
-    // 117 RPM @ no load (1.95 RPS)
+    // 117 RPM @ no load (1.95 RPS) // Slow intake motor
     // 1,425.1 PPR at output. (2778.945 PPS)
-    double PPR = 1425.1;
+    // 312 RPM @ no load (5.2 RPS) // Fast intake motor
+    // 537.7 PPR at output. (2,796.04 PPS)
+    double PPR = 537.7;
     private double tps;
     private double rps;
 

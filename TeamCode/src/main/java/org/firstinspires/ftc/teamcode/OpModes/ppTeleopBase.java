@@ -9,6 +9,8 @@ import com.pedropathing.paths.HeadingInterpolator;
 import com.pedropathing.paths.Path;
 import com.pedropathing.paths.PathChain;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.hardware.DigitalChannel;
+import com.qualcomm.robotcore.hardware.LED;
 
 import org.firstinspires.ftc.teamcode.gobot.Intake;
 import org.firstinspires.ftc.teamcode.gobot.Launcher;
@@ -30,7 +32,7 @@ abstract public class ppTeleopBase extends OpMode {
     private boolean lockdownMode = false;
     private Path lockdownPath;
     private Pose lockdownPose;
-    private final double HOLD_TOLERANCE_INCHES = 0.25; // originally 0.5
+    private final double HOLD_TOLERANCE_INCHES = 0.2; // originally 0.5
     private final double HOLD_TOLERANCE_DEGREES = 1.0; // originally 2.0
     private boolean robotCentric; // true means robot centric, false is field centric
     private Supplier<PathChain> pathChainFront;
@@ -50,7 +52,7 @@ abstract public class ppTeleopBase extends OpMode {
 //    private int AllianceColor = 2; // Red is 2
     private int StartPosition;
 //    private int StartPosition = 1; // Front is 1
-//    private int StartPosition = 1; // Back is 2
+//    private int StartPosition = 2; // Back is 2
 
     public Pose startingPose;  //See ExampleAuto to understand how to use this
 
@@ -58,6 +60,10 @@ abstract public class ppTeleopBase extends OpMode {
     public Pose rearShootPose;
     public Pose ParkPose;
     public Pose HumanPose;
+
+
+    // Declare a LED object for the indicator LEDs
+    LED redLED;
 
     private Intake intake;
     private Sorter sorter;
@@ -116,6 +122,15 @@ abstract public class ppTeleopBase extends OpMode {
         launcher = new Launcher();
         launcher.init(hardwareMap);
 
+        // Initialize the LED from the hardware map
+        // The name "myLED" must match the name in your configuration file
+        redLED = hardwareMap.get(LED.class, "lockdown_LED1");
+        redLED.enable(false);
+
+//        // Set the LED as an output device
+//        greenLED.setMode(DigitalChannel.Mode.OUTPUT);
+//        redLED.setMode(DigitalChannel.Mode.OUTPUT);
+
         currentBall = 0; // Set the pattern position to ball 0
 
         // true means robot centric, false is field centric
@@ -170,7 +185,7 @@ abstract public class ppTeleopBase extends OpMode {
 
         // Intake
         if (gamepad1.a) {
-            intake.setIntake(2);
+            intake.setIntake(5);
         } else if (gamepad1.b) {
             intake.setIntake(-2);
         } else {
@@ -221,7 +236,6 @@ abstract public class ppTeleopBase extends OpMode {
             launcher.enableMotor();
             telemetry.addData("Flywheel setpoint: ", launcher.getNominalRPS());
             telemetry.addData("Flywheel actual: ", launcher.actual_RPS);
-
         } else {
             launcher.disableMotor();
         }
@@ -435,6 +449,15 @@ abstract public class ppTeleopBase extends OpMode {
 //        if (gamepad2.yWasPressed()) {
 //            slowModeMultiplier -= 0.25;
 //        }
+
+//        greenLED = hardwareMap.get(DigitalChannel.class, "lockdown_LED1");
+//        redLED = hardwareMap.get(DigitalChannel.class, "lockdown_LED2");
+
+        if (automatedDrive==true) {
+            redLED.enable(true);
+        } else {
+            redLED.enable(false);
+        }
 
         //Call this once per loop
         follower.update();

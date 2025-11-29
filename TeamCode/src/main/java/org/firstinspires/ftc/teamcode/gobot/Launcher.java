@@ -4,6 +4,7 @@ import com.bylazar.configurables.annotations.Configurable;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.hardware.LED;
 import com.qualcomm.robotcore.hardware.PIDFCoefficients;
 import com.qualcomm.robotcore.hardware.ServoController;
 
@@ -21,7 +22,10 @@ public class Launcher {
     private double RPS;
     private double nominalRPS;
     public static double actual_RPS = 0;
+    public static final double threshold = 1;
 
+    // Declare a LED object for the indicator LEDs
+    LED greenLED;
 
 
     public static double launcher_P;
@@ -61,6 +65,12 @@ public class Launcher {
         ExpansionHub2_ServoController = hwMap.get(ServoController.class, "Expansion Hub 2");
         ExpansionHub2_ServoController.pwmEnable();
 
+        // turn green when the flywheel speed is within 1 rps of the target value
+        greenLED = hwMap.get(LED.class, "lockdown_LED2");
+        // Red is used to indicate automatic movement program is running.
+
+        greenLED.enable(false);
+
 //        // Get the PIDF coefficients for the RUN_USING_ENCODER RunMode.
 //        PIDFCoefficients pidfOrig = motor.getPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER);
 
@@ -80,6 +90,17 @@ public class Launcher {
 //                pidfModified.p, pidfModified.i, pidfModified.d, pidfModified.f);
 
         actual_RPS = this.motor.getVelocity()/this.PPR;
+
+        // Enable Green LED if the launcher is running and at nominal speed
+        if ((this.RPS > 0) && (isReady())) {
+            greenLED.enable(true);
+        } else {
+            greenLED.enable(false);
+        }
+    }
+
+    public boolean isReady() {
+        return (Math.abs(actual_RPS - this.RPS) <threshold);
     }
 
     public void setMotorSpeed(double speed){
