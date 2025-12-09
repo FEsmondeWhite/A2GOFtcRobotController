@@ -6,7 +6,6 @@ import com.pedropathing.geometry.BezierLine;
 import com.pedropathing.geometry.Pose;
 import com.pedropathing.paths.PathChain;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
-import com.qualcomm.robotcore.hardware.LED;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.teamcode.gobot.Intake;
@@ -45,9 +44,6 @@ abstract public class ppAutoBase extends OpMode {
     //Timers and flags
     private ElapsedTime taskTimer;
     private boolean taskFlag=false;
-
-    // Declare a LED object for the indicator LEDs
-    LED redLED;
 
     private final ArrayList<PathChain> pathA = new ArrayList<>();
 
@@ -91,8 +87,8 @@ abstract public class ppAutoBase extends OpMode {
 
     private Pose shootPose;
     double shootSpeedRPS;
-    double rearSpeedRPS = 60;
-    double frontSpeedRPS = 55;
+    double rearSpeedRPS = 57.5;
+    double frontSpeedRPS = 53;
     private Pose frontShootPose;
     private Pose rearShootPose;
     private Pose endPose;
@@ -239,7 +235,7 @@ abstract public class ppAutoBase extends OpMode {
         // Define the field poses for shooting and parking based on alliance color
         if (AllianceColor == 1) {
             frontShootPose = new Pose(59,14, (double) Math.toRadians(115));
-            rearShootPose = new Pose(58,85, (double) Math.toRadians(134));
+            rearShootPose = new Pose(58,85, (double) Math.toRadians(135));
             if (StartPosition == 1) {
                 shootPose = frontShootPose;
                 shootSpeedRPS = frontSpeedRPS;
@@ -341,11 +337,6 @@ abstract public class ppAutoBase extends OpMode {
         launcher.init(hardwareMap);
         taskCount = 0;
 
-        // Initialize the LED from the hardware map
-        // The name "myLED" must match the name in your configuration file
-        redLED = hardwareMap.get(LED.class, "lockdown_LED1");
-        redLED.enable(false);
-
         // Initialize the Vision Detection utility
         vision = new VisionDetection(
                 hardwareMap,
@@ -380,24 +371,30 @@ abstract public class ppAutoBase extends OpMode {
 
         sorter.update();
         lifter.update();
+        launcher.update();
 
         updatePath();
-
-        if (follower.isBusy()) {
-            redLED.enable(true);
-        } else {
-            redLED.enable(false);
-        }
 
         //Call this once per loop
         follower.update();
 
         this.sorter.balls.telemetry();
+
+
+//        telemetryM.debug("position", follower.getPose());
+//        telemetryM.debug("velocity", follower.getVelocity());
+//        telemetryM.update();
+
+        this.sorter.balls.detailedTelemetry();
+
         // Feedback to Driver Hub for debugging
         telemetry.addData("path state", currentState);
         telemetry.addData("x", follower.getPose().getX());
         telemetry.addData("y", follower.getPose().getY());
         telemetry.addData("heading", follower.getPose().getHeading());
+
+        telemetry.addData("Flywheel setpoint: ", launcher.getNominalRPS());
+        telemetry.addData("Flywheel actual: ", launcher.actual_RPS);
         telemetry.update();
 //        telemetryM.update();
 
@@ -440,7 +437,6 @@ abstract public class ppAutoBase extends OpMode {
                 currentState = State.TRAJ_0;
                 break;
 
-
             //[0] Move to scan pose
             case TRAJ_0:
                 if (!follower.isBusy()) {
@@ -455,7 +451,6 @@ abstract public class ppAutoBase extends OpMode {
                     taskState = TaskState.TASK_IDLE;
                 }
                 break;
-
 
             // Scan the april tag
             case SCAN:
@@ -485,11 +480,11 @@ abstract public class ppAutoBase extends OpMode {
                 }
                 break;
 
-
             //[1] Move to shoot pose
             case TRAJ_1:
                 if (!follower.isBusy()) {
                     // Move to the shoot position
+                    follower.setMaxPower(0.8); //SLOW DOWN!!!
                     follower.followPath(pathA.get(1), true);
                     currentState = State.SHOOT_A;
                     // Configure for the shooting state machine
@@ -533,7 +528,6 @@ abstract public class ppAutoBase extends OpMode {
                             if (this.sorter.balls.targetMatchForLaunch()) {
                                 // if the correct ball is already lined up, then launch.
                                 if (!sorter.isBusy() && launcher.isReady()) {
-                                    // If the flywheel is at speed, then launch
                                     lifter.start(); // Lift/launch the ball
                                     taskState = TaskState.TASK_LIFTING;
                                 }
@@ -547,8 +541,7 @@ abstract public class ppAutoBase extends OpMode {
 
                             } else if (this.sorter.balls.anyBallReadyForLaunch()) {
                                 // if the correct ball is not available, but we have a ball, then launch.
-                                if (!sorter.isBusy() && launcher.isReady()) {
-                                    // If the flywheel is at speed, then launch
+                                if (!sorter.isBusy()) {
                                     lifter.start(); // Lift/launch the ball
                                     taskState = TaskState.TASK_LIFTING;
                                 }
@@ -565,6 +558,7 @@ abstract public class ppAutoBase extends OpMode {
                                 taskState = TaskState.TASK_IDLE;
                                 launcher.disableMotor(); // turn off flywheel
                                 currentState = State.TRAJ_2;
+                                follower.setMaxPower(1); //Speed up
                             }
                             break;
                         case TASK_LIFTING:
@@ -618,7 +612,6 @@ abstract public class ppAutoBase extends OpMode {
                 }
                 break;
 
-
             //[4] Collect ball 2
             case TRAJ_4:
                 if (!follower.isBusy()) {
@@ -642,7 +635,6 @@ abstract public class ppAutoBase extends OpMode {
                     }
                 }
                 break;
-
 
             //[5] Collect ball 3
             case TRAJ_5:
@@ -669,7 +661,6 @@ abstract public class ppAutoBase extends OpMode {
                 }
                 break;
 
-
             //[6] Move to shoot pose
             case TRAJ_6:
                 if (!follower.isBusy() && taskTimer.time() > 1.5) {
@@ -679,10 +670,10 @@ abstract public class ppAutoBase extends OpMode {
                     currentState = State.SHOOT_B;
                     taskFlag = false;
                     launcher.enableMotor(); // turn on flywheel
+                    taskCount = 3;
                     taskState = TaskState.TASK_IDLE;
                 }
                 break;
-
 
             //Shoot 3 Balls
             case SHOOT_B:
@@ -712,7 +703,6 @@ abstract public class ppAutoBase extends OpMode {
                             if (this.sorter.balls.targetMatchForLaunch()) {
                                 // if the correct ball is already lined up, then launch.
                                 if (!sorter.isBusy() && launcher.isReady()) {
-                                    // If the flywheel is at speed, then launch
                                     lifter.start(); // Lift/launch the ball
                                     taskState = TaskState.TASK_LIFTING;
                                 }
@@ -726,8 +716,7 @@ abstract public class ppAutoBase extends OpMode {
 
                             } else if (this.sorter.balls.anyBallReadyForLaunch()) {
                                 // if the correct ball is not available, but we have a ball, then launch.
-                                if (!sorter.isBusy() && launcher.isReady()) {
-                                    // If the flywheel is at speed, then launch
+                                if (!sorter.isBusy()) {
                                     lifter.start(); // Lift/launch the ball
                                     taskState = TaskState.TASK_LIFTING;
                                 }
@@ -761,11 +750,9 @@ abstract public class ppAutoBase extends OpMode {
                 }
                 break;
 
-
             //[7] Move to STOP pose
             case TRAJ_7:
                 if (!follower.isBusy()) {
-                    // follower.followPath(pathA.get(7), true);
                     currentState = State.STOP;
                 }
                 break;
@@ -774,5 +761,6 @@ abstract public class ppAutoBase extends OpMode {
                 //Nothing
                 break;
         }
+
     }
 }

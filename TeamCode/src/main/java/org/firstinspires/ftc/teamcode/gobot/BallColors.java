@@ -96,7 +96,7 @@ public class BallColors {
 
     public void identifyColors() {
         // In ball
-        if (in_dist>12) {
+        if (in_dist>11.2) {
             // no ball
             in_ID = 0;
         } else if (1.0*in_g / in_r >= 2.0) {
@@ -120,7 +120,7 @@ public class BallColors {
         }
 
         // Out ball
-        if (out_dist>6) {
+        if (out_dist>5.5) {
             // no ball
             out_ID = 0;
         } else if (1.0*out_g / out_r >= 1.8) {

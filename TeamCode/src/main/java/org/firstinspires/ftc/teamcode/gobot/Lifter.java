@@ -24,7 +24,7 @@ public class Lifter {
         this.ExpansionHub2_ServoController = hwMap.get(ServoController .class, "Expansion Hub 2");
         this.lifter = hwMap.get(Servo.class, "lifter");
         this.lifterState = 0;
-        this.lifter.scaleRange(0.38, 0.585);
+        this.lifter.scaleRange(0.365, 0.605);
         this.liftPosition = bottomPosition;
         this.lifter.setPosition(liftPosition);
         this.ExpansionHub2_ServoController.pwmEnable();

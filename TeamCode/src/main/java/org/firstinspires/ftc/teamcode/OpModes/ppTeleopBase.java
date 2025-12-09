@@ -12,6 +12,7 @@ import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.DigitalChannel;
 import com.qualcomm.robotcore.hardware.LED;
 
+import org.firstinspires.ftc.teamcode.gobot.EnPointe;
 import org.firstinspires.ftc.teamcode.gobot.Intake;
 import org.firstinspires.ftc.teamcode.gobot.Launcher;
 import org.firstinspires.ftc.teamcode.gobot.Lifter;
@@ -47,6 +48,8 @@ abstract public class ppTeleopBase extends OpMode {
     private double fullSpeed = 1.0;
     private double moderateSpeed = 0.7;
 
+    private boolean autoFlywheelSpeed = true;
+
     private int AllianceColor;
 //    private int AllianceColor = 1; // Blue is 1
 //    private int AllianceColor = 2; // Red is 2
@@ -60,6 +63,7 @@ abstract public class ppTeleopBase extends OpMode {
     public Pose rearShootPose;
     public Pose ParkPose;
     public Pose HumanPose;
+    public Pose GoalPose;
 
 
     // Declare a LED object for the indicator LEDs
@@ -69,6 +73,7 @@ abstract public class ppTeleopBase extends OpMode {
     private Sorter sorter;
     private Lifter lifter;
     public Launcher launcher;
+    private EnPointe enpoint;
 
 
     // Get pose and heading based on alliance color and start position (front/back)
@@ -102,11 +107,13 @@ abstract public class ppTeleopBase extends OpMode {
             rearShootPose = new Pose(71,79, 2.40855); // Math.toRadians(138));
             ParkPose = new Pose(144-38.6,33.4, Math.toRadians(180)); // Math.toRadians(90));
             HumanPose = new Pose(127.5,15.5, 4.71239); // Math.toRadians(270));
+            GoalPose = new Pose(0, 144); // Blue goal
         } else if (AllianceColor == 2) {
             frontShootPose = new Pose(144-71,20, 1.02974); // Math.toRadians(180-121));
             rearShootPose = new Pose(144-71,79, 0.73304); // Math.toRadians(180-138));
             ParkPose = new Pose(38.6,33.4, Math.toRadians(0)); // Math.toRadians(90));
             HumanPose = new Pose(16.5,15.5, 1.57079); // Math.toRadians(90));
+            GoalPose = new Pose(144, 144); // Red goal
         }
     }
 
@@ -121,6 +128,8 @@ abstract public class ppTeleopBase extends OpMode {
         lifter.init(hardwareMap);
         launcher = new Launcher();
         launcher.init(hardwareMap);
+        enpoint = new EnPointe();
+        enpoint.init(hardwareMap);
 
         // Initialize the LED from the hardware map
         // The name "myLED" must match the name in your configuration file
@@ -181,6 +190,7 @@ abstract public class ppTeleopBase extends OpMode {
         sorter.update();
         lifter.update();
         launcher.update();
+        enpoint.update();
         telemetry.addData("Flywheel speed (RPS) ", launcher.actual_RPS);
 
         // Intake
@@ -221,11 +231,24 @@ abstract public class ppTeleopBase extends OpMode {
         }
         if (gamepad2.dpadRightWasReleased())
         {
-            launcher.setNominalRPS(60);
+            launcher.setNominalRPS(57);
         }
         if (gamepad2.dpadLeftWasReleased())
         {
-            launcher.setNominalRPS(55);
+            launcher.setNominalRPS(52.5);
+        }
+
+        if (gamepad2.xWasReleased()) {
+            autoFlywheelSpeed = !autoFlywheelSpeed;
+        }
+
+        if (autoFlywheelSpeed == true)
+        {
+            launcher.setNominalRPS(
+                    launcher.getSpeedNearestToDistance(
+                            launcher.getDistance(follower.getPose(), GoalPose)
+                    )
+            );
         }
 
         // static public flywheel PIDF allows it to be changed in panels
@@ -264,6 +287,16 @@ abstract public class ppTeleopBase extends OpMode {
             automatedDrive = true;
         }
 
+
+        //Automated PathFollowing to the human player artifact loading position
+        if (gamepad2.yWasReleased()) {
+            if (enpoint.isBusy()) {
+                enpoint.stop();
+            } else {
+                enpoint.start();
+            }
+        }
+
         // Start automated lockdown mode to hold position
         if (gamepad1.yWasReleased()) {
             // ENGAGE HOLD: Capture current pose and lock target
@@ -282,9 +315,12 @@ abstract public class ppTeleopBase extends OpMode {
         }
 
         // Handle Manual Driving
-        if (!automatedDrive) {
+        if (enpoint.isBusy()) {
+            // If enpointe is activated, we don't want to run teleop or auto movement.
+        } else if (!automatedDrive) {
             //Make the last parameter false for field-centric
             //In case the drivers want to use a "slowMode" you can scale the vectors
+
 
             if (gamepad1.optionsWasReleased()) {
                 robotCentric = !(robotCentric);
@@ -330,7 +366,7 @@ abstract public class ppTeleopBase extends OpMode {
             }
         }
 
-        if (lockdownMode) {
+        if (lockdownMode && !enpoint.isBusy()) {
             if (!automatedDrive) {
                 // RELEASE HOLD: Switch back to manual teleop
                 follower.breakFollowing();
