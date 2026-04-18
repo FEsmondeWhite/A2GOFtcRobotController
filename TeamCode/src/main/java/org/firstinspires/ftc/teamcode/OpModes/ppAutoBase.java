@@ -359,10 +359,10 @@ abstract public class ppAutoBase extends OpMode {
     public void init() {
         intake = new Intake();
         intake.init(hardwareMap);
-        sorter = new Sorter(hardwareMap, telemetry);
-        sorter.init();
         lifter = new Lifter();
         lifter.init(hardwareMap);
+        sorter = new Sorter(hardwareMap, telemetry);
+        sorter.init(lifter);
         launcher = new Launcher();
         launcher.init(hardwareMap);
         taskCount = 0;

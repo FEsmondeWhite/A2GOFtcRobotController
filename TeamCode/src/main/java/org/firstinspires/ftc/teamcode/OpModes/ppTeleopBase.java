@@ -156,10 +156,10 @@ abstract public class ppTeleopBase extends OpMode {
 
         intake = new Intake();
         intake.init(hardwareMap);
-        sorter = new Sorter(hardwareMap, telemetry);
-        sorter.init();
         lifter = new Lifter();
         lifter.init(hardwareMap);
+        sorter = new Sorter(hardwareMap, telemetry);
+        sorter.init(lifter);
         launcher = new Launcher();
         launcher.init(hardwareMap);
         enpoint = new EnPointe();
@@ -252,10 +252,6 @@ abstract public class ppTeleopBase extends OpMode {
         // THINK Section (Logic & State Machines):
 
         timingSystem.update();
-        sorter.update();
-        lifter.update();
-        launcher.update();
-        enpoint.update();
         if (timingSystem.do_telemetry()) {
             telemetry.addData("Flywheel speed (RPS) ", launcher.actual_RPS);
         }
@@ -273,6 +269,9 @@ abstract public class ppTeleopBase extends OpMode {
         if (!lifter.isBusy()) {
             if (currentGamepad2.rightBumperWasPressed()) {
                 sorter.start(1);
+            }
+            if (currentGamepad2.left_bumper) { // Or whichever trigger you prefer
+                sorter.startUnbind();
             }
         }
 
@@ -579,6 +578,10 @@ abstract public class ppTeleopBase extends OpMode {
         // ACT Section (Motor Commands):
         // Note PedroPathing motor control is already complete.
 
+        sorter.update();
+        lifter.update();
+        launcher.update();
+        enpoint.update();
 
         if (timingSystem.do_telemetry()) {
 //            telemetryM.debug("position", currentRobotPose);
@@ -586,6 +589,7 @@ abstract public class ppTeleopBase extends OpMode {
 //            telemetryM.debug("automatedDrive", automatedDrive);
 //            telemetryM.update();
 
+//            sorter.addTelemetry();
             this.sorter.balls.detailedTelemetry();
             this.sorter.balls.telemetry();
             telemetry.update();

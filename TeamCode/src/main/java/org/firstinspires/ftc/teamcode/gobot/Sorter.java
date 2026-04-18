@@ -1,121 +1,147 @@
 package org.firstinspires.ftc.teamcode.gobot;
 
 import androidx.annotation.NonNull;
-
-import com.bylazar.configurables.annotations.Configurable;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.CRServoImplEx;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.hardware.TouchSensor;
-import com.qualcomm.robotcore.util.ElapsedTime;
-
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 
-@Configurable
 public class Sorter {
-
     private final HardwareMap hwMap;
     private final Telemetry telemetry;
+    private CRServoImplEx ball_sorter_arm;
+    private Lifter lifter;
 
-    private CRServo ball_sorter_arm;
-    // GoBilda dual-mode torque servo
-    //    ExpansionHub2_ServoController = hardwareMap.get(ServoController.class, "Expansion Hub 2");
     public BallColors balls;
+    private TouchSensor mag7center, mag6center, mag4lead, mag5lag;
 
-    private TouchSensor mag7center;
-    private TouchSensor mag6center;
-    private TouchSensor mag4lead;
-    private TouchSensor mag5lag;
+    private int sorter_state = 0;
+    private long sorter_timer_start;
 
-//    private int sorterState; // for sorter state machine
-//    long sorterTimerStart;
-    int sorter_state;
-    long sorter_timer_start;
+    // --- FINAL STABLE PARAMETERS ---
+    private final long BASE_BURST_MS = 300;
+    private final double SEARCH_POWER = 0.20;
+    private final long DWELL_DURATION_MS = 60; // Slightly longer dwell for safety
+    private final long UNBIND_DURATION = 90;
 
     public Sorter (@NonNull HardwareMap hwMap, Telemetry telemetry) {
         this.hwMap = hwMap;
         this.telemetry = telemetry;
     }
 
-    public void init() {
+    public void init(Lifter lifter) {
+        this.lifter = lifter;
+        ball_sorter_arm = (CRServoImplEx) hwMap.get(CRServo.class, "ball_sorter_arm");
 
-        ball_sorter_arm = hwMap.get(CRServo.class, "ball_sorter_arm");
         mag7center = hwMap.get(TouchSensor.class, "mag7center");
         mag6center = hwMap.get(TouchSensor.class, "mag6center");
         mag4lead = hwMap.get(TouchSensor.class, "mag4lead");
         mag5lag = hwMap.get(TouchSensor.class, "mag5lag");
 
-        sorter_state = 0;
         ball_sorter_arm.setDirection(CRServo.Direction.FORWARD);
 
+        // Ensure the servo is awake and stays awake
+        ball_sorter_arm.setPwmEnable();
+
         balls = new BallColors(hwMap, this.telemetry);
-        this.balls.init();
-        this.balls.updateColors();
-//        sorterTimer = new ElapsedTime();
-//        this.stop();
+        balls.init();
+        balls.updateColors();
+
+        sorter_state = 10;
     }
 
-//    public void stop() {
-//        this.sorterServo.setPower(stopPower);
-//        this.sorterServo.setPwmDisable();
-//    }
-//
-//    public void updateMagnets() {
-//        this.sorterMagnetIsTriggered = this.sorterAngleMagnet.isPressed();
-////        this.sorterPositionATriggered = this.sorterPositionMagnetA.isPressed();
-////        this.sorterPositionBTriggered = this.sorterPositionMagnetB.isPressed();
-//    }
-
-    // start the sorter to move counter-clockwise or cw.
-    // The mechanism only works properly in the ccw direction (direction = 1)
     public void start(int direction) {
-        sorter_state = 1;
+        if (lifter.isBusy()) return;
+        if (sorter_state == 0) sorter_state = 1;
     }
 
-    public boolean isBusy() {
-        return (this.sorter_state != 0);
+    public void startUnbind() {
+        if (lifter.isBusy()) return;
+        sorter_state = 20;
     }
 
-    /**
-     * update runs the sorter state machine.
-     */
+    public boolean isBusy() { return (sorter_state != 0); }
+
+    public void addTelemetry() {
+        telemetry.addData("Sorter State", sorter_state);
+        telemetry.addData("Mag Triggered", isAnyMagPressed());
+    }
+
+    private boolean isAnyMagPressed() {
+        return mag7center.isPressed() || mag6center.isPressed() ||
+                mag4lead.isPressed() || mag5lag.isPressed();
+    }
+
     public void update() {
-        if (0 == sorter_state) {
-            if (!(mag7center.isPressed() || mag6center.isPressed())) {
-                ball_sorter_arm.setPower(-0.2);
-                sorter_state = 10;
-            }
-        } else if (1 == sorter_state) {
-            ball_sorter_arm.setPower(1);
-            // Get the current time in milliseconds. The value returned represents
-            // the number of milliseconds since midnight, January 1, 1970 UTC.
-            sorter_timer_start = System.currentTimeMillis();
-            sorter_state = 2;
-        } else if (2 == sorter_state) {
-            // Get the current time in milliseconds. The value returned represents
-            // the number of milliseconds since midnight, January 1, 1970 UTC.
-            if (System.currentTimeMillis() - sorter_timer_start > 430) {
-                ball_sorter_arm.setPower(0.15);
-                // Get the current time in milliseconds. The value returned represents
-                // the number of milliseconds since midnight, January 1, 1970 UTC.
-                sorter_timer_start = System.currentTimeMillis();
-                sorter_state = 3;
-            }
-        } else if (3 == sorter_state) {
-            if (mag4lead.isPressed()) {
-                ball_sorter_arm.setPower(0);
-                sorter_state = 0;
-            }
-        } else if (10 == sorter_state) {
-            if (mag7center.isPressed() || mag6center.isPressed()) {
-                ball_sorter_arm.setPower(0);
-                sorter_state = 0;
-            }
+        long currentTime = System.currentTimeMillis();
+
+        // EMERGENCY STOP: Lifter Protection
+        if (lifter.isBusy() && sorter_state != 0) {
+            ball_sorter_arm.setPower(0);
+            sorter_state = 0;
+            return;
         }
 
+        switch (sorter_state) {
+            case 0: // IDLE (STABLE)
+                // We keep PWM enabled here so the servo doesn't "jump" when re-activated.
+                ball_sorter_arm.setPower(0);
+                break;
 
+            case 1: // START BURST
+                ball_sorter_arm.setPower(1.0);
+                sorter_timer_start = currentTime;
+                sorter_state = 2;
+                break;
+
+            case 2: // BURST WAIT
+                if (currentTime - sorter_timer_start > BASE_BURST_MS) {
+                    ball_sorter_arm.setPower(SEARCH_POWER);
+                    sorter_state = 3;
+                }
+                break;
+
+            case 3: // SEEKING
+                if (isAnyMagPressed()) {
+                    ball_sorter_arm.setPower(0);
+                    sorter_timer_start = currentTime;
+                    sorter_state = 4;
+                }
+                break;
+
+            case 4: // SETTLE DWELL
+                // Motor power is already 0. We wait for physical momentum to die.
+                if (currentTime - sorter_timer_start > DWELL_DURATION_MS) {
+                    balls.updateColors();
+                    sorter_state = 0;
+                }
+                break;
+
+            case 10: // INITIAL HOME
+                ball_sorter_arm.setPower(0.12);
+                sorter_state = 11;
+                break;
+
+            case 11: // WAIT FOR HOME
+                if (isAnyMagPressed()) {
+                    ball_sorter_arm.setPower(0);
+                    sorter_timer_start = currentTime;
+                    sorter_state = 4;
+                }
+                break;
+
+            case 20: // UNBIND
+                ball_sorter_arm.setPower(-0.4);
+                sorter_timer_start = currentTime;
+                sorter_state = 21;
+                break;
+
+            case 21: // UNBIND WAIT
+                if (currentTime - sorter_timer_start > UNBIND_DURATION) {
+                    sorter_state = 1;
+                }
+                break;
+        }
     }
 }
-
-
-
