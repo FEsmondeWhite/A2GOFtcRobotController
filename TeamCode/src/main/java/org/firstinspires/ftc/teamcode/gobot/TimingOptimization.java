@@ -6,7 +6,7 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
 public class TimingOptimization {
     private ElapsedTime loopTimer;
     private ElapsedTime hzUpdateTimer;
-    private Telemetry telemetry;
+    private final Telemetry telemetry;
 
     private double lastHz;
     private double minHz;

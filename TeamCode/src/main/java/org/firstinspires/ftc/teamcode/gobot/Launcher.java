@@ -16,7 +16,7 @@ public class Launcher {
 
 
 
-    ServoController ExpansionHub2_ServoController;
+    private ServoController ExpansionHub2_ServoController;
     private DcMotorEx motor;
     // 312 RPM @ no load (5.2) RPS)
     //  	537.7 PPR at output. (2796.04 PPS)

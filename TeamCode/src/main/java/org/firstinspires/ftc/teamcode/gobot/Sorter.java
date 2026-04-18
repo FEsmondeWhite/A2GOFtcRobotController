@@ -14,8 +14,8 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
 @Configurable
 public class Sorter {
 
-    private HardwareMap hwMap;
-    private Telemetry telemetry;
+    private final HardwareMap hwMap;
+    private final Telemetry telemetry;
 
     private CRServo ball_sorter_arm;
     // GoBilda dual-mode torque servo
@@ -70,7 +70,6 @@ public class Sorter {
     // The mechanism only works properly in the ccw direction (direction = 1)
     public void start(int direction) {
         sorter_state = 1;
-        return;
     }
 
     public boolean isBusy() {

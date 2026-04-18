@@ -11,6 +11,7 @@ import com.pedropathing.paths.PathChain;
 import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.DigitalChannel;
+import com.qualcomm.robotcore.hardware.Gamepad;
 import com.qualcomm.robotcore.hardware.LED;
 
 import org.firstinspires.ftc.teamcode.gobot.EnPointe;
@@ -31,10 +32,10 @@ abstract public class ppTeleopBase extends OpMode {
     private Follower follower;
     private boolean automatedDrive;
 
-    private int currentBall;
+//    private int currentBall;
 
     private boolean lockdownMode = false;
-    private Path lockdownPath;
+//    private Path lockdownPath;
     private Pose lockdownPose;
     private final double HOLD_TOLERANCE_INCHES = 0.2; // originally 0.5
     private final double HOLD_TOLERANCE_DEGREES = 1.0; // originally 2.0
@@ -74,17 +75,24 @@ abstract public class ppTeleopBase extends OpMode {
     LED redLED;
 
     private TimingOptimization timingSystem;
+    List<LynxModule> allHubs;
+
     private Intake intake;
     private Sorter sorter;
     private Lifter lifter;
-    public Launcher launcher;
+    private Launcher launcher;
     private EnPointe enpoint;
 
-    List<LynxModule> allHubs;
-
+    // Define a "Snapshot" at the start of your OpMode class
+    Gamepad currentGamepad1;
+    Gamepad previousGamepad1;
+    Gamepad currentGamepad2;
+    Gamepad previousGamepad2;
 
     // Get pose and heading based on alliance color and start position (front/back)
     public ppTeleopBase(int AllianceColor, int StartPosition) {
+
+
         this.AllianceColor = AllianceColor;
         this.StartPosition = StartPosition;
         if (AllianceColor == 1) {
@@ -137,6 +145,15 @@ abstract public class ppTeleopBase extends OpMode {
         timingSystem = new TimingOptimization(telemetry);
         timingSystem.init();
 
+        currentGamepad1 = new Gamepad();
+        previousGamepad1 = new Gamepad();
+        currentGamepad2 = new Gamepad();
+        previousGamepad2 = new Gamepad();
+        currentGamepad1.copy(gamepad1);
+        previousGamepad1.copy(currentGamepad1);
+        currentGamepad2.copy(gamepad2);
+        previousGamepad2.copy(currentGamepad2);
+
         intake = new Intake();
         intake.init(hardwareMap);
         sorter = new Sorter(hardwareMap, telemetry);
@@ -157,7 +174,7 @@ abstract public class ppTeleopBase extends OpMode {
 //        greenLED.setMode(DigitalChannel.Mode.OUTPUT);
 //        redLED.setMode(DigitalChannel.Mode.OUTPUT);
 
-        currentBall = 0; // Set the pattern position to ball 0
+        int currentBall = 0; // Set the pattern position to ball 0
 
         // true means robot centric, false is field centric
         robotCentric = true;
@@ -214,6 +231,24 @@ abstract public class ppTeleopBase extends OpMode {
         follower.update(); //Call this once per loop
         Pose currentRobotPose = follower.getPose();
 
+        // 1. Save the previous state to detect new presses
+        previousGamepad1.copy(currentGamepad1);
+        previousGamepad2.copy(currentGamepad2);
+
+// 2. Take a "Snapshot" of the current state
+        currentGamepad1.copy(gamepad1);
+        currentGamepad2.copy(gamepad2);
+
+// //        example use of gamepads:
+//        // 3. Use the SNAPSHOT for all logic
+//        if (currentGamepad1.a && !previousGamepad1.a) {
+//            // This only runs ONCE when 'A' is pressed
+//            sorterStateMachine.triggerNextSlot();
+//        }
+//
+//// 4. Drive logic using the snapshot
+//        double drivePower = -currentGamepad1.left_stick_y;
+
         // THINK Section (Logic & State Machines):
 
         timingSystem.update();
@@ -226,9 +261,9 @@ abstract public class ppTeleopBase extends OpMode {
         }
 
         // Intake
-        if (gamepad1.a) {
+        if (currentGamepad1.a) {
             intake.setIntake(5);
-        } else if (gamepad1.b) {
+        } else if (currentGamepad1.b) {
             intake.setIntake(-2);
         } else {
             intake.setIntake(0);
@@ -236,41 +271,41 @@ abstract public class ppTeleopBase extends OpMode {
 
         // Sorter
         if (!lifter.isBusy()) {
-            if (gamepad2.rightBumperWasPressed()) {
+            if (currentGamepad2.rightBumperWasPressed()) {
                 sorter.start(1);
             }
         }
 
         // Lifter
         if (!sorter.isBusy()) {
-            if (gamepad2.right_trigger > 0.5) {
+            if (currentGamepad2.right_trigger > 0.5) {
                 lifter.start();
             }
         }
 
-//        if (gamepad2.left_trigger > 0.5) {
+//        if (currentGamepad2.left_trigger > 0.5) {
 //            lifter.stop();
 //        }
 
         // Flywheel
-        if (gamepad2.dpadUpWasReleased())
+        if (currentGamepad2.dpadUpWasReleased())
         {
             launcher.setNominalRPS(launcher.getNominalRPS()+1);
         }
-        if (gamepad2.dpadDownWasReleased())
+        if (currentGamepad2.dpadDownWasReleased())
         {
             launcher.setNominalRPS(launcher.getNominalRPS()-1);
         }
-        if (gamepad2.dpadRightWasReleased())
+        if (currentGamepad2.dpadRightWasReleased())
         {
             launcher.setNominalRPS(57);
         }
-        if (gamepad2.dpadLeftWasReleased())
+        if (currentGamepad2.dpadLeftWasReleased())
         {
             launcher.setNominalRPS(52.5);
         }
 
-        if (gamepad2.xWasReleased()) {
+        if (currentGamepad2.xWasReleased()) {
             autoFlywheelSpeed = !autoFlywheelSpeed;
         }
 
@@ -283,7 +318,7 @@ abstract public class ppTeleopBase extends OpMode {
             );
         }
 
-        if (gamepad2.circleWasReleased()) {
+        if (currentGamepad2.circleWasReleased()) {
             follower.setPose(ResetPose);
         }
 
@@ -293,7 +328,7 @@ abstract public class ppTeleopBase extends OpMode {
 //            telemetryM.addData("Flywheel actual", launcher.actual_RPS);
 //            }
 
-        if (gamepad2.x) {
+        if (currentGamepad2.x) {
             launcher.enableMotor();
             if (timingSystem.do_telemetry()) {
                 telemetry.addData("Flywheel setpoint: ", launcher.getNominalRPS());
@@ -304,32 +339,32 @@ abstract public class ppTeleopBase extends OpMode {
         }
 
         //Automated PathFollowing to the front launch position
-        if (gamepad1.dpadDownWasPressed()) {
+        if (currentGamepad1.dpadDownWasPressed()) {
             follower.followPath(this.pathChainFront.get(), true);
             automatedDrive = true;
         }
 
         //Automated PathFollowing to the rear launch position
-        if (gamepad1.dpadUpWasPressed()) {
+        if (currentGamepad1.dpadUpWasPressed()) {
             follower.followPath(this.pathChainRear.get(), true);
             automatedDrive = true;
         }
 
         //Automated PathFollowing to the end game park position
-        if (gamepad1.dpadLeftWasPressed()) {
+        if (currentGamepad1.dpadLeftWasPressed()) {
             follower.followPath(this.pathChainPark.get(), true);
             automatedDrive = true;
         }
 
         //Automated PathFollowing to the human player artifact loading position
-        if (gamepad1.dpadRightWasPressed()) {
+        if (currentGamepad1.dpadRightWasPressed()) {
             follower.followPath(this.pathChainHuman.get(), true);
             automatedDrive = true;
         }
 
 
         //Automated PathFollowing to the human player artifact loading position
-        if (gamepad2.yWasReleased()) {
+        if (currentGamepad2.yWasReleased()) {
             if (enpoint.isBusy()) {
                 enpoint.stop();
             } else {
@@ -338,7 +373,7 @@ abstract public class ppTeleopBase extends OpMode {
         }
 
         // Start automated lockdown mode to hold position
-        if (gamepad1.yWasReleased()) {
+        if (currentGamepad1.yWasReleased()) {
             // ENGAGE HOLD: Capture current pose and lock target
             lockdownPose = currentRobotPose;
             automatedDrive = true;
@@ -362,24 +397,24 @@ abstract public class ppTeleopBase extends OpMode {
             //In case the drivers want to use a "slowMode" you can scale the vectors
 
 
-            if (gamepad1.optionsWasReleased()) {
+            if (currentGamepad1.optionsWasReleased()) {
                 robotCentric = !(robotCentric);
             }
             if (!slowMode) {
                 if (!(robotCentric)) {
                     //This is the normal version to use in the TeleOp
                     follower.setTeleOpDrive(
-                            gamepad1.left_stick_x,
-                            -gamepad1.left_stick_y,
-                            -gamepad1.right_stick_x,
+                            currentGamepad1.left_stick_x,
+                            -currentGamepad1.left_stick_y,
+                            -currentGamepad1.right_stick_x,
                             robotCentric // Field Centric
                     );
                 } else {
                     //This is the normal version to use in the TeleOp
                     follower.setTeleOpDrive(
-                            -gamepad1.left_stick_y,
-                            -gamepad1.left_stick_x,
-                            -gamepad1.right_stick_x,
+                            -currentGamepad1.left_stick_y,
+                            -currentGamepad1.left_stick_x,
+                            -currentGamepad1.right_stick_x,
                             robotCentric // Robot Centric
                     );
                 }
@@ -389,17 +424,17 @@ abstract public class ppTeleopBase extends OpMode {
                 if (!(robotCentric)) {
                     //This is the slow version to use in the TeleOp
                     follower.setTeleOpDrive(
-                            gamepad1.left_stick_x * slowModeMultiplier,
-                            -gamepad1.left_stick_y * slowModeMultiplier,
-                            -gamepad1.right_stick_x * slowModeMultiplier,
+                            currentGamepad1.left_stick_x * slowModeMultiplier,
+                            -currentGamepad1.left_stick_y * slowModeMultiplier,
+                            -currentGamepad1.right_stick_x * slowModeMultiplier,
                             robotCentric // Field Centric
                     );
                 } else {
                     //This is the slow version to use in the TeleOp
                     follower.setTeleOpDrive(
-                            -gamepad1.left_stick_y * slowModeMultiplier,
-                            -gamepad1.left_stick_x * slowModeMultiplier,
-                            -gamepad1.right_stick_x * slowModeMultiplier,
+                            -currentGamepad1.left_stick_y * slowModeMultiplier,
+                            -currentGamepad1.left_stick_x * slowModeMultiplier,
+                            -currentGamepad1.right_stick_x * slowModeMultiplier,
                             robotCentric // Robot Centric
                     );
                 }
@@ -488,7 +523,7 @@ abstract public class ppTeleopBase extends OpMode {
         if (automatedDrive &&
 //                (Math.abs(gamepad1.left_stick_x)>0.5) ||
 //                (Math.abs(gamepad1.left_stick_y)>0.5) ||
-                (gamepad1.xWasPressed() ||
+                (currentGamepad1.xWasPressed() ||
                         (!follower.isBusy() && !lockdownMode))) {
             follower.startTeleopDrive();
             automatedDrive = false;
@@ -496,10 +531,10 @@ abstract public class ppTeleopBase extends OpMode {
 
 
         //Moderate speed mode
-//        if (gamepad1.leftBumperWasPressed()) {
+//        if (currentGamepad1.leftBumperWasPressed()) {
 //            slowMode = !slowMode;
 //        }
-        if (gamepad1.leftBumperWasPressed()) {
+        if (currentGamepad1.leftBumperWasPressed()) {
             if (driveSpeedMax == fullSpeed) {
                 // Toggle to moderateSpeed
                 driveSpeedMax = fullSpeed; // fullSpeed or moderateSpeed
@@ -513,22 +548,22 @@ abstract public class ppTeleopBase extends OpMode {
 
 
         //Slow Mode
-//        if (gamepad1.rightBumperWasPressed()) {
+//        if (currentGamepad1.rightBumperWasPressed()) {
 //            slowMode = !slowMode;
 //        }
-        if (gamepad1.right_bumper) {
+        if (currentGamepad1.right_bumper) {
             slowMode = true;
         } else {
             slowMode = false;
         }
 
 //        //Optional way to change slow mode strength
-//        if (gamepad1.xWasPressed()) {
+//        if (currentGamepad1.xWasPressed()) {
 //            slowModeMultiplier += 0.25;
 //        }
 //
 //        //Optional way to change slow mode strength
-//        if (gamepad2.yWasPressed()) {
+//        if (currentGamepad2.yWasPressed()) {
 //            slowModeMultiplier -= 0.25;
 //        }
 

@@ -16,7 +16,6 @@ public class EnPointe {
     private int enPointState;
     private long enpointe_timer_start;
 
-
     /**
      * Initialize the lifter.
      */
@@ -61,9 +60,10 @@ public class EnPointe {
     public void update() {
         // Make sure the sorter is in the correct position for lifting the ball.
 
-        if (this.enPointState == 0) {
-            // Do nothing
-        } else if (enPointState == 1) {
+//        if (this.enPointState == 0) {
+//            // Do nothing
+//        } else
+        if (enPointState == 1) {
             // We're raising up
             if (System.currentTimeMillis() - enpointe_timer_start >= 2500) { // Still lifting if time < 2500
                 enPointState = 2;
