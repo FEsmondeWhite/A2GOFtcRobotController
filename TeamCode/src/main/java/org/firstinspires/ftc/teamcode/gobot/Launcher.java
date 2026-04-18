@@ -185,9 +185,9 @@ public class Launcher {
         return this.TPS;
     }
 
-    public double getDistance(Pose robotPosition, Pose goalPostion) {
-        double xDistance = robotPosition.getX() - goalPostion.getX();
-        double yDistance = robotPosition.getY() - goalPostion.getY();
+    public double getDistance(Pose robotPosition, Pose goalPosition) {
+        double xDistance = robotPosition.getX() - goalPosition.getX();
+        double yDistance = robotPosition.getY() - goalPosition.getY();
         double distance = Math.sqrt(Math.pow(xDistance,2) + Math.pow(yDistance,2));
         return distance;
     }

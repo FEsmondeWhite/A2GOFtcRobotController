@@ -8,9 +8,10 @@ public class TimingOptimization {
     private ElapsedTime hzUpdateTimer;
     private Telemetry telemetry;
 
-    private double lastHz = 0;
-    private double minHz = 500;
-    private double maxHz = 0;
+    private double lastHz;
+    private double minHz;
+    private double maxHz;
+    private int startingCountdown;
     private boolean enableTelemetry = false;
 
     public TimingOptimization(Telemetry telemetry) {
@@ -22,6 +23,8 @@ public class TimingOptimization {
         this.hzUpdateTimer = new ElapsedTime();
         this.minHz = 500;
         this.maxHz = 0;
+        this.lastHz = 0;
+        this.startingCountdown = 25; // ~ 0.5 seconds before timing begins to run.
     }
 
     public void update() {
@@ -32,12 +35,16 @@ public class TimingOptimization {
         loopTimer.reset();
 
         // 3. Calculate Hz based on that specific gap
-        if (deltaTime > 0) {
+        if (deltaTime > 0)  {
             double currentHz = 1.0 / deltaTime;
 
-            // Update Min/Max (Skip the first few loops to let JVM warm up)
-            if (currentHz < this.minHz) this.minHz = currentHz;
-            if (currentHz > this.maxHz) this.maxHz = currentHz;
+            if (startingCountdown == 0 ) {
+                // Update Min/Max (Skip the first few loops to let JVM warm up)
+                if (currentHz < this.minHz) this.minHz = currentHz;
+                if (currentHz > this.maxHz) this.maxHz = currentHz;
+            } else {
+                startingCountdown--;
+            }
 
             this.lastHz = currentHz;
         }
