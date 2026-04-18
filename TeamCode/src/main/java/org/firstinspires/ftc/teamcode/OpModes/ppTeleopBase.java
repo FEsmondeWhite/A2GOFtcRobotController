@@ -204,10 +204,17 @@ abstract public class ppTeleopBase extends OpMode {
 
     @Override
     public void loop() {
+        // READ SECTION (Hardware Snapshots):
+
         // IMPORTANT: Clear caches for BOTH hubs at the very start
         for (LynxModule hub : allHubs) {
             hub.clearBulkCache();
         }
+
+        follower.update(); //Call this once per loop
+        Pose currentRobotPose = follower.getPose();
+
+        // THINK Section (Logic & State Machines):
 
         timingSystem.update();
         sorter.update();
@@ -271,7 +278,7 @@ abstract public class ppTeleopBase extends OpMode {
         {
             launcher.setNominalRPS(
                     launcher.getSpeedNearestToDistance(
-                            launcher.getDistance(follower.getPose(), GoalPose)
+                            launcher.getDistance(currentRobotPose, GoalPose)
                     )
             );
         }
@@ -333,7 +340,7 @@ abstract public class ppTeleopBase extends OpMode {
         // Start automated lockdown mode to hold position
         if (gamepad1.yWasReleased()) {
             // ENGAGE HOLD: Capture current pose and lock target
-            lockdownPose = follower.getPose();
+            lockdownPose = currentRobotPose;
             automatedDrive = true;
             lockdownMode = true;
 
@@ -407,10 +414,10 @@ abstract public class ppTeleopBase extends OpMode {
                 lockdownMode = false;
             } else {
                 // Calculate how far we are from the locked spot
-                double distanceError = follower.getPose().distanceFrom(lockdownPose); // Assumes getDistance exists
-                // If getDistance doesn't exist, use: Math.hypot(follower.getPose().getX() - lockedPose.getX(), follower.getPose().getY() - lockedPose.getY());
+                double distanceError = currentRobotPose.distanceFrom(lockdownPose); // Assumes getDistance exists
+                // If getDistance doesn't exist, use: Math.hypot(currentRobotPose.getX() - lockedPose.getX(), currentRobotPose.getY() - lockedPose.getY());
 
-                double headingError = Math.abs(follower.getPose().getHeading() - lockdownPose.getHeading());
+                double headingError = Math.abs(currentRobotPose.getHeading() - lockdownPose.getHeading());
                 // Normalize heading error to 0-360 or 0-180 if needed here
 
                 // --- TOLERANCE CHECK (Anti-Buzz) ---
@@ -428,11 +435,11 @@ abstract public class ppTeleopBase extends OpMode {
 
                     // Create the path dynamically from CURRENT -> LOCKED
                     // This pulls the robot back to the lockedPose
-                    Path lockdownPath = new Path(new BezierLine(follower.getPose(), lockdownPose));
+                    Path lockdownPath = new Path(new BezierLine(currentRobotPose, lockdownPose));
                     lockdownPath.setConstantHeadingInterpolation(lockdownPose.getHeading());
 
                     follower.followPath(lockdownPath, true);
-                    follower.update();
+//                    follower.update(); // follower.update() was being called twice. :(
 
                     if (timingSystem.do_telemetry()) {
                         telemetry.addData("Status", "HOLDING (Correcting Error!)");
@@ -534,11 +541,12 @@ abstract public class ppTeleopBase extends OpMode {
             redLED.enable(false);
         }
 
-        //Call this once per loop
-        follower.update();
+        // ACT Section (Motor Commands):
+        // Note PedroPathing motor control is already complete.
+
 
         if (timingSystem.do_telemetry()) {
-//            telemetryM.debug("position", follower.getPose());
+//            telemetryM.debug("position", currentRobotPose);
 //            telemetryM.debug("velocity", follower.getVelocity());
 //            telemetryM.debug("automatedDrive", automatedDrive);
 //            telemetryM.update();
