@@ -24,7 +24,7 @@ public class Launcher {
     private double TPS;
     private double RPS;
     private double nominalRPS;
-    public static double actual_RPS = 0;
+    public double actual_RPS = 0;
     public static final double threshold = 2;
 
     // Declare a LED object for the indicator LEDs
@@ -33,10 +33,10 @@ public class Launcher {
     private List<DataPoint> data;
 
 
-    public static double launcher_P;
-    public static double launcher_I;
-    public static double launcher_D;
-    public static double launcher_F;
+    public double launcher_P;
+    public double launcher_I;
+    public double launcher_D;
+    public double launcher_F;
 
     // Custom class to hold distance and speed pairs
     static class DataPoint {
@@ -49,13 +49,13 @@ public class Launcher {
         }
     }
 
-    /**
-     * Finds the speed value corresponding to the distance nearest to a given target distance.
-     *
-     * @param dataPoints A list of DataPoint objects containing distance and speed.
-     * @param targetDistance The distance to find the nearest speed for.
-     * @return The speed value corresponding to the nearest distance, or -1 if the list is empty.
-     */
+//    /**
+//     * Finds the speed value corresponding to the distance nearest to a given target distance.
+//     *
+//     * @param dataPoints A list of DataPoint objects containing distance and speed.
+//     * @param targetDistance The distance to find the nearest speed for.
+//     * @return The speed value corresponding to the nearest distance, or -1 if the list is empty.
+//     */
     public double getSpeedNearestToDistance(double targetDistance) {
         if (data == null || data.isEmpty()) {
             return -1; // Or throw an IllegalArgumentException
@@ -95,7 +95,6 @@ public class Launcher {
 
     public void setNominalRPS(double setpoint) {
         nominalRPS = setpoint;
-        return;
     }
 
     public void init(HardwareMap hwMap) {
@@ -151,10 +150,10 @@ public class Launcher {
         actual_RPS = this.motor.getVelocity()/this.PPR;
 
         // Enable Green LED if the launcher is running and at nominal speed
-        if ((this.RPS > 0) && (isReady())) {
-            greenLED.enable(true);
-        } else {
+        if ((!(this.RPS > 0)) || (!isReady())) {
             greenLED.enable(false);
+        } else {
+            greenLED.enable(true);
         }
     }
 
@@ -188,8 +187,7 @@ public class Launcher {
     public double getDistance(Pose robotPosition, Pose goalPosition) {
         double xDistance = robotPosition.getX() - goalPosition.getX();
         double yDistance = robotPosition.getY() - goalPosition.getY();
-        double distance = Math.sqrt(Math.pow(xDistance,2) + Math.pow(yDistance,2));
-        return distance;
+        return Math.sqrt(Math.pow(xDistance,2) + Math.pow(yDistance,2));
     }
 
 //    double speed = getSpeedNearestToDistance(double targetDistance);

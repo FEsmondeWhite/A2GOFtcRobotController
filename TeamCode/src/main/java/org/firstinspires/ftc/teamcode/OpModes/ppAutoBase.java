@@ -57,7 +57,6 @@ abstract public class ppAutoBase extends OpMode {
     public static int GAIN_VAL = 255;   // High gain to compensate for low exposure
     int patternID;
     List<Character> colorPattern;
-    private int currentBall;
 
     private Follower follower;
 
@@ -96,10 +95,10 @@ abstract public class ppAutoBase extends OpMode {
 
     private TelemetryManager telemetryM;
 
-    private int AllianceColor;
+    private final int AllianceColor;
 //    private int AllianceColor = 1; // Blue is 1
 //    private int AllianceColor = 2; // Red is 2
-    private int StartPosition;
+    private final int StartPosition;
 //    private int StartPosition = 1; // Front is 1
 //    private int StartPosition = 1; // Back is 2
     private int taskCount;
@@ -253,7 +252,7 @@ abstract public class ppAutoBase extends OpMode {
                 startingPose = new Pose(144 - 33.5, 134, 1.57079); // 270 degrees
             }
         }
-        currentBall = 0; // Set the pattern position to ball 0
+        int currentBall = 0; // Set the pattern position to ball 0
 
         // In auto, we should always start in the new position.
 //        // If there is a stored pose (starting from PP auto) then
@@ -265,8 +264,8 @@ abstract public class ppAutoBase extends OpMode {
 
         // Define the field poses for shooting and parking based on alliance color
         if (AllianceColor == 1) {
-            frontShootPose = new Pose(59,14, (double) Math.toRadians(115));
-            rearShootPose = new Pose(58,85, (double) Math.toRadians(135));
+            frontShootPose = new Pose(59,14, Math.toRadians(115));
+            rearShootPose = new Pose(58,85, Math.toRadians(135));
             if (StartPosition == 1) {
                 shootPose = frontShootPose;
                 shootSpeedRPS = frontSpeedRPS;
@@ -277,8 +276,8 @@ abstract public class ppAutoBase extends OpMode {
                 endPose = new Pose(48,128, 4.71239); // 270 degrees
             }
         } else if (AllianceColor == 2) {
-            frontShootPose = new Pose(86,14, (double) Math.toRadians(67)); // Math.toRadians(66.5));
-            rearShootPose = new Pose(88,85, (double) Math.toRadians(49)); // Math.toRadians(180-133)); 47 deg
+            frontShootPose = new Pose(86,14, Math.toRadians(67)); // Math.toRadians(66.5));
+            rearShootPose = new Pose(88,85, Math.toRadians(49)); // Math.toRadians(180-133)); 47 deg
             if (StartPosition == 1) {
                 shootPose = frontShootPose;
                 shootSpeedRPS = frontSpeedRPS;
@@ -294,22 +293,22 @@ abstract public class ppAutoBase extends OpMode {
         if (AllianceColor == 1) {
             // Blue intake locations
             if (StartPosition == 1) {
-                scanAprilTagPose = new Pose(58.5, 25, (double) Math.toRadians(83));
+                scanAprilTagPose = new Pose(58.5, 25, Math.toRadians(83));
             } else if (StartPosition == 2) {
-                scanAprilTagPose = new Pose(55, 110, (double) Math.toRadians(67));
+                scanAprilTagPose = new Pose(55, 110, Math.toRadians(67));
             }
-            intakeLineup1Pose = new Pose(42, 36,(double) Math.toRadians(180));
-            intake1Ball1GPose = new Pose(36, 36,(double) Math.toRadians(180));
-            intake1Ball2PPose = new Pose(31, 36,(double) Math.toRadians(180));
-            intake1Ball3PPose = new Pose(26, 36,(double) Math.toRadians(180));
-            intakeLineup2Pose = new Pose(42, 60,(double) Math.toRadians(180));
-            intake2Ball1PPose = new Pose(36, 60,(double) Math.toRadians(180));
-            intake2Ball2GPose = new Pose(31, 60,(double) Math.toRadians(180));
-            intake2Ball3PPose = new Pose(26, 60,(double) Math.toRadians(180));
-            intakeLineup3Pose = new Pose(42, 84,(double) Math.toRadians(180));
-            intake3Ball1PPose = new Pose(36, 84,(double) Math.toRadians(180));
-            intake3Ball2PPose = new Pose(31, 84,(double) Math.toRadians(180));
-            intake3Ball3GPose = new Pose(26, 84,(double) Math.toRadians(180));
+            intakeLineup1Pose = new Pose(42, 36, Math.toRadians(180));
+            intake1Ball1GPose = new Pose(36, 36, Math.toRadians(180));
+            intake1Ball2PPose = new Pose(31, 36, Math.toRadians(180));
+            intake1Ball3PPose = new Pose(26, 36, Math.toRadians(180));
+            intakeLineup2Pose = new Pose(42, 60, Math.toRadians(180));
+            intake2Ball1PPose = new Pose(36, 60, Math.toRadians(180));
+            intake2Ball2GPose = new Pose(31, 60, Math.toRadians(180));
+            intake2Ball3PPose = new Pose(26, 60, Math.toRadians(180));
+            intakeLineup3Pose = new Pose(42, 84, Math.toRadians(180));
+            intake3Ball1PPose = new Pose(36, 84, Math.toRadians(180));
+            intake3Ball2PPose = new Pose(31, 84, Math.toRadians(180));
+            intake3Ball3GPose = new Pose(26, 84, Math.toRadians(180));
 
             if (StartPosition == 1) {
                 stack1StartPose = intakeLineup1Pose;
@@ -325,22 +324,22 @@ abstract public class ppAutoBase extends OpMode {
         } else if (AllianceColor == 2) {
             // Red intake locations
             if (StartPosition == 1) {
-                scanAprilTagPose = new Pose(85.5, 25, (double) Math.toRadians(97));
+                scanAprilTagPose = new Pose(85.5, 25, Math.toRadians(97));
             } else if (StartPosition == 2) {
-                scanAprilTagPose = new Pose(90, 110, (double) Math.toRadians(113));
+                scanAprilTagPose = new Pose(90, 110, Math.toRadians(113));
             }
-            intakeLineup1Pose = new Pose(102, 35,(double) Math.toRadians(0));
-            intake1Ball1GPose = new Pose(108, 35,(double) Math.toRadians(0));
-            intake1Ball2PPose = new Pose(113, 35,(double) Math.toRadians(0));
-            intake1Ball3PPose = new Pose(118, 35,(double) Math.toRadians(0));
-            intakeLineup2Pose = new Pose(102, 59,(double) Math.toRadians(0));
-            intake2Ball1PPose = new Pose(108, 59,(double) Math.toRadians(0));
-            intake2Ball2GPose = new Pose(113, 59,(double) Math.toRadians(0));
-            intake2Ball3PPose = new Pose(118, 59,(double) Math.toRadians(0));
-            intakeLineup3Pose = new Pose(102, 83,(double) Math.toRadians(0));
-            intake3Ball1PPose = new Pose(108, 83,(double) Math.toRadians(0));
-            intake3Ball2PPose = new Pose(113, 83,(double) Math.toRadians(0));
-            intake3Ball3GPose = new Pose(118, 83,(double) Math.toRadians(0));
+            intakeLineup1Pose = new Pose(102, 35, Math.toRadians(0));
+            intake1Ball1GPose = new Pose(108, 35, Math.toRadians(0));
+            intake1Ball2PPose = new Pose(113, 35, Math.toRadians(0));
+            intake1Ball3PPose = new Pose(118, 35, Math.toRadians(0));
+            intakeLineup2Pose = new Pose(102, 59, Math.toRadians(0));
+            intake2Ball1PPose = new Pose(108, 59, Math.toRadians(0));
+            intake2Ball2GPose = new Pose(113, 59, Math.toRadians(0));
+            intake2Ball3PPose = new Pose(118, 59, Math.toRadians(0));
+            intakeLineup3Pose = new Pose(102, 83, Math.toRadians(0));
+            intake3Ball1PPose = new Pose(108, 83, Math.toRadians(0));
+            intake3Ball2PPose = new Pose(113, 83, Math.toRadians(0));
+            intake3Ball3GPose = new Pose(118, 83, Math.toRadians(0));
 
             if (StartPosition == 1) {
                 stack1StartPose = intakeLineup1Pose;

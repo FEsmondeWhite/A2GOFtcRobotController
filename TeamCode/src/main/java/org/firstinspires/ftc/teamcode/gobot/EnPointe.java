@@ -68,10 +68,12 @@ public class EnPointe {
             if (System.currentTimeMillis() - enpointe_timer_start >= 2500) { // Still lifting if time < 2500
                 enPointState = 2;
             }
-        } else if (enPointState == 2) {
-            // We're in the lifted state
-            // Do nothing
-        } else if (enPointState == 10) {
+        }
+//        else if (enPointState == 2) {
+//            // We're in the lifted state
+//            // Do nothing
+//        }
+        else if (enPointState == 10) {
             // We're lowering down
             if (System.currentTimeMillis() - enpointe_timer_start >= 1000) {
                 enPointState = 0;
