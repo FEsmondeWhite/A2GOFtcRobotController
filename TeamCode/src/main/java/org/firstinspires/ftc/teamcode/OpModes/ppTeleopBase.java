@@ -8,6 +8,7 @@ import com.pedropathing.geometry.Pose;
 import com.pedropathing.paths.HeadingInterpolator;
 import com.pedropathing.paths.Path;
 import com.pedropathing.paths.PathChain;
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.DigitalChannel;
 import com.qualcomm.robotcore.hardware.LED;
@@ -18,9 +19,11 @@ import org.firstinspires.ftc.teamcode.gobot.Launcher;
 import org.firstinspires.ftc.teamcode.gobot.Lifter;
 import org.firstinspires.ftc.teamcode.gobot.PoseStorage;
 import org.firstinspires.ftc.teamcode.gobot.Sorter;
+import org.firstinspires.ftc.teamcode.gobot.TimingOptimization;
 import org.firstinspires.ftc.teamcode.pedroPathing.Constants;
 //import org.firstinspires.ftc.teamcode.gobot.StartingPose;
 
+import java.util.List;
 import java.util.function.Supplier;
 
 //@TeleOp()
@@ -41,7 +44,7 @@ abstract public class ppTeleopBase extends OpMode {
     private Supplier<PathChain> pathChainPark;
     private Supplier<PathChain> pathChainHuman;
 
-    private TelemetryManager telemetryM;
+//    private TelemetryManager telemetryM;
     private boolean slowMode = false;
     private double slowModeMultiplier = 0.25; // Was too fast for accurate parking at 0.5
     private double driveSpeedMax; //
@@ -64,16 +67,20 @@ abstract public class ppTeleopBase extends OpMode {
     public Pose ParkPose;
     public Pose HumanPose;
     public Pose GoalPose;
+    public Pose ResetPose;
 
 
     // Declare a LED object for the indicator LEDs
     LED redLED;
 
+    private TimingOptimization timingSystem;
     private Intake intake;
     private Sorter sorter;
     private Lifter lifter;
     public Launcher launcher;
     private EnPointe enpoint;
+
+    List<LynxModule> allHubs;
 
 
     // Get pose and heading based on alliance color and start position (front/back)
@@ -108,17 +115,27 @@ abstract public class ppTeleopBase extends OpMode {
             ParkPose = new Pose(144-38.6,33.4, Math.toRadians(180)); // Math.toRadians(90));
             HumanPose = new Pose(127.5,15.5, 4.71239); // Math.toRadians(270));
             GoalPose = new Pose(0, 144); // Blue goal
+            ResetPose = new Pose(134, 9, Math.toRadians(90));
         } else if (AllianceColor == 2) {
             frontShootPose = new Pose(144-71,20, 1.02974); // Math.toRadians(180-121));
             rearShootPose = new Pose(144-71,79, 0.73304); // Math.toRadians(180-138));
             ParkPose = new Pose(38.6,33.4, Math.toRadians(0)); // Math.toRadians(90));
             HumanPose = new Pose(16.5,15.5, 1.57079); // Math.toRadians(90));
             GoalPose = new Pose(144, 144); // Red goal
+            ResetPose = new Pose(9, 9, Math.toRadians(90));
         }
     }
 
     @Override
     public void init() {
+
+        allHubs = hardwareMap.getAll(LynxModule.class);
+        for (LynxModule hub : allHubs) {
+            hub.setBulkCachingMode(LynxModule.BulkCachingMode.MANUAL);
+        }
+
+        timingSystem = new TimingOptimization(telemetry);
+        timingSystem.init();
 
         intake = new Intake();
         intake.init(hardwareMap);
@@ -153,7 +170,7 @@ abstract public class ppTeleopBase extends OpMode {
 
         follower.setStartingPose(startingPose);
         follower.update();
-        telemetryM = PanelsTelemetry.INSTANCE.getTelemetry();
+//        telemetryM = PanelsTelemetry.INSTANCE.getTelemetry();
 
         this.pathChainRear = () -> follower.pathBuilder() //Lazy Curve Generation
                 .addPath(new Path(new BezierLine(follower::getPose, rearShootPose)))
@@ -187,11 +204,19 @@ abstract public class ppTeleopBase extends OpMode {
 
     @Override
     public void loop() {
+        // IMPORTANT: Clear caches for BOTH hubs at the very start
+        for (LynxModule hub : allHubs) {
+            hub.clearBulkCache();
+        }
+
+        timingSystem.update();
         sorter.update();
         lifter.update();
         launcher.update();
         enpoint.update();
-        telemetry.addData("Flywheel speed (RPS) ", launcher.actual_RPS);
+        if (timingSystem.do_telemetry()) {
+            telemetry.addData("Flywheel speed (RPS) ", launcher.actual_RPS);
+        }
 
         // Intake
         if (gamepad1.a) {
@@ -242,7 +267,7 @@ abstract public class ppTeleopBase extends OpMode {
             autoFlywheelSpeed = !autoFlywheelSpeed;
         }
 
-        if (autoFlywheelSpeed == true)
+        if (autoFlywheelSpeed == false)
         {
             launcher.setNominalRPS(
                     launcher.getSpeedNearestToDistance(
@@ -251,14 +276,22 @@ abstract public class ppTeleopBase extends OpMode {
             );
         }
 
-        // static public flywheel PIDF allows it to be changed in panels
-        telemetryM.addData("Flywheel setpoint", launcher.getNominalRPS());
-        telemetryM.addData("Flywheel actual", launcher.actual_RPS);
+        if (gamepad2.circleWasReleased()) {
+            follower.setPose(ResetPose);
+        }
+
+//        if (timingSystem.do_telemetry()) {
+//            // static public flywheel PIDF allows it to be changed in panels
+//            telemetryM.addData("Flywheel setpoint", launcher.getNominalRPS());
+//            telemetryM.addData("Flywheel actual", launcher.actual_RPS);
+//            }
 
         if (gamepad2.x) {
             launcher.enableMotor();
-            telemetry.addData("Flywheel setpoint: ", launcher.getNominalRPS());
-            telemetry.addData("Flywheel actual: ", launcher.actual_RPS);
+            if (timingSystem.do_telemetry()) {
+                telemetry.addData("Flywheel setpoint: ", launcher.getNominalRPS());
+                telemetry.addData("Flywheel actual: ", launcher.actual_RPS);
+            }
         } else {
             launcher.disableMotor();
         }
@@ -387,7 +420,9 @@ abstract public class ppTeleopBase extends OpMode {
                     // Optional: explicitly set 0 power if breakFollowing doesn't coast
                     // follower.setTeleOpMovement(0, 0, 0, false);
 
-                    telemetry.addData("Status", "HOLDING (Relaxed - In Deadzone)");
+                    if (timingSystem.do_telemetry()) {
+                        telemetry.addData("Status", "HOLDING (Relaxed - In Deadzone)");
+                    }
                 } else {
                     // We were pushed! FIGHT BACK.
 
@@ -399,10 +434,14 @@ abstract public class ppTeleopBase extends OpMode {
                     follower.followPath(lockdownPath, true);
                     follower.update();
 
-                    telemetry.addData("Status", "HOLDING (Correcting Error!)");
+                    if (timingSystem.do_telemetry()) {
+                        telemetry.addData("Status", "HOLDING (Correcting Error!)");
+                    }
                 }
 
-                telemetry.addData("Err Dist", "%.2f in", distanceError);
+                if (timingSystem.do_telemetry()) {
+                    telemetry.addData("Err Dist", "%.2f in", distanceError);
+                }
             }
         }
 
@@ -498,13 +537,15 @@ abstract public class ppTeleopBase extends OpMode {
         //Call this once per loop
         follower.update();
 
-        telemetryM.debug("position", follower.getPose());
-        telemetryM.debug("velocity", follower.getVelocity());
-        telemetryM.debug("automatedDrive", automatedDrive);
-        telemetryM.update();
+        if (timingSystem.do_telemetry()) {
+//            telemetryM.debug("position", follower.getPose());
+//            telemetryM.debug("velocity", follower.getVelocity());
+//            telemetryM.debug("automatedDrive", automatedDrive);
+//            telemetryM.update();
 
-        this.sorter.balls.detailedTelemetry();
-        this.sorter.balls.telemetry();
-        telemetry.update();
+            this.sorter.balls.detailedTelemetry();
+            this.sorter.balls.telemetry();
+            telemetry.update();
+        }
     }
 }

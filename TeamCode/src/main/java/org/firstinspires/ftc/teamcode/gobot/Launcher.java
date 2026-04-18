@@ -25,7 +25,7 @@ public class Launcher {
     private double RPS;
     private double nominalRPS;
     public static double actual_RPS = 0;
-    public static final double threshold = 1;
+    public static final double threshold = 2;
 
     // Declare a LED object for the indicator LEDs
     LED greenLED;

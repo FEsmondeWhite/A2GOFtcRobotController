@@ -17,42 +17,20 @@ public class Sorter {
     private HardwareMap hwMap;
     private Telemetry telemetry;
 
-    private CRServoImplEx sorterServo;
+    private CRServo ball_sorter_arm;
     // GoBilda dual-mode torque servo
     //    ExpansionHub2_ServoController = hardwareMap.get(ServoController.class, "Expansion Hub 2");
     public BallColors balls;
 
+    private TouchSensor mag7center;
+    private TouchSensor mag6center;
+    private TouchSensor mag4lead;
+    private TouchSensor mag5lag;
+
 //    private int sorterState; // for sorter state machine
 //    long sorterTimerStart;
-    private ElapsedTime sorterTimer;
-    TouchSensor sorterAngleMagnet;
-//    TouchSensor sorterPositionMagnetA;
-//    TouchSensor sorterPositionMagnetB;
-    boolean sorterMagnetIsTriggered;
-//    boolean sorterPositionATriggered;
-//    boolean sorterPositionBTriggered;
-    int sorterDirection;
-
-    public double fastMovePower = 1.0;
-    public double fastTime = 0.35;
-    public double slowMovePower = 0.13;
-    public double slowTime = 0.05;
-    public double additionalTime = 0.04;
-    public double holdPower = 0;
-    public double holdTime = 0.1;
-    public double stopPower = 0;
-    public double stopTime = 0.05;
-
-    enum SorterState {
-        SORTER_IDLE,      // not moving
-        START_SORTING, // start the sorter
-        FAST_MOVE, // start moving quickly
-        SLOW_MOVE, // slowly finish the move
-        BRIEF_SLOW_MOVE, // briefly add a touch more rotation
-        BRIEF_HOLD, // hold at position to allow the sorter to settle
-        STOP_FOR_IDLE // unpower servo to be ready for idle
-    }
-    private SorterState sorterState;
+    int sorter_state;
+    long sorter_timer_start;
 
     public Sorter (@NonNull HardwareMap hwMap, Telemetry telemetry) {
         this.hwMap = hwMap;
@@ -60,112 +38,85 @@ public class Sorter {
     }
 
     public void init() {
-        this.sorterServo = hwMap.get(CRServoImplEx.class, "ball_sorter_arm");
-        this.sorterAngleMagnet = hwMap.get(TouchSensor.class, "selector_paddle_magnet");
+
+        ball_sorter_arm = hwMap.get(CRServo.class, "ball_sorter_arm");
+        mag7center = hwMap.get(TouchSensor.class, "mag7center");
+        mag6center = hwMap.get(TouchSensor.class, "mag6center");
+        mag4lead = hwMap.get(TouchSensor.class, "mag4lead");
+        mag5lag = hwMap.get(TouchSensor.class, "mag5lag");
+
+        sorter_state = 0;
+        ball_sorter_arm.setDirection(CRServo.Direction.FORWARD);
+
         balls = new BallColors(hwMap, this.telemetry);
         this.balls.init();
         this.balls.updateColors();
-        sorterState = SorterState.SORTER_IDLE;
-        sorterTimer = new ElapsedTime();
-        this.stop();
+//        sorterTimer = new ElapsedTime();
+//        this.stop();
     }
 
-    public void stop() {
-        this.sorterServo.setPower(stopPower);
-        this.sorterServo.setPwmDisable();
-    }
-
-    public void updateMagnets() {
-        this.sorterMagnetIsTriggered = this.sorterAngleMagnet.isPressed();
-//        this.sorterPositionATriggered = this.sorterPositionMagnetA.isPressed();
-//        this.sorterPositionBTriggered = this.sorterPositionMagnetB.isPressed();
-    }
+//    public void stop() {
+//        this.sorterServo.setPower(stopPower);
+//        this.sorterServo.setPwmDisable();
+//    }
+//
+//    public void updateMagnets() {
+//        this.sorterMagnetIsTriggered = this.sorterAngleMagnet.isPressed();
+////        this.sorterPositionATriggered = this.sorterPositionMagnetA.isPressed();
+////        this.sorterPositionBTriggered = this.sorterPositionMagnetB.isPressed();
+//    }
 
     // start the sorter to move counter-clockwise or cw.
     // The mechanism only works properly in the ccw direction (direction = 1)
     public void start(int direction) {
-        if (this.sorterState == SorterState.SORTER_IDLE) {
-            if (direction == 1) { // ccw
-                this.sorterDirection = 1;
-                this.sorterServo.setDirection(CRServo.Direction.FORWARD);
-            }
-            else if (direction == -1) { // cw
-                this.sorterDirection = -1;
-                this.sorterServo.setDirection(CRServo.Direction.REVERSE);
-            }
-            this.sorterState = SorterState.FAST_MOVE;
-            this.sorterServo.setPwmEnable();
-            this.sorterServo.setPower(fastMovePower);
-            this.sorterTimer.reset(); //  = System.currentTimeMillis();
-        }
+        sorter_state = 1;
         return;
     }
 
     public boolean isBusy() {
-        return (this.sorterState != SorterState.SORTER_IDLE);
+        return (this.sorter_state != 0);
     }
 
     /**
      * update runs the sorter state machine.
      */
     public void update() {
-        this.updateMagnets();
-
-        switch (this.sorterState) {
-            // Idle
-            case SORTER_IDLE:
-                break;
-            // Start the sorting process
-            case START_SORTING:
-                this.sorterState = SorterState.FAST_MOVE;
-//                this.sorterServo.setPwmEnable();
-                this.sorterServo.setPower(fastMovePower);
-                this.sorterTimer.reset();
-                break;
-            // Initial quick movement
-            case FAST_MOVE:
-                if (this.sorterTimer.time() > fastTime) {
-                    this.sorterTimer.reset();
-                    this.sorterState = SorterState.SLOW_MOVE;
-                    this.sorterServo.setPower(slowMovePower);
-                }
-                break;
-            // Secondary slow movement
-            case SLOW_MOVE:
-                if ((this.sorterTimer.time() > slowTime) && this.sorterMagnetIsTriggered) {
-                    this.sorterTimer.reset();
-                    this.sorterState = SorterState.BRIEF_SLOW_MOVE;
-                }
-                break;
-            // Extra nudge
-            case BRIEF_SLOW_MOVE:
-                if (this.sorterTimer.time() > additionalTime) {
-                    this.sorterTimer.reset();
-                    this.sorterState = SorterState.BRIEF_HOLD;
-                    this.sorterServo.setPower(holdPower);
-                }
-                break;
-            // Hold period
-            case BRIEF_HOLD:
-                if (this.sorterTimer.time() > holdTime) {
-//                    if  (this.sorterMagnetIsTriggered) {
-                    this.sorterTimer.reset();
-                    this.sorterState = SorterState.STOP_FOR_IDLE;
-                    this.balls.updateColors();
-//                        this.stop();
-                    this.sorterServo.setPower(stopPower);
-//                    } else {
-//                        this.sorterState = SorterState.START_SORTING;
-//                    }
-                }
-                break;
-            // Stop for idle
-            case STOP_FOR_IDLE:
-                if (this.sorterTimer.time() > stopTime) {
-                    this.sorterState = SorterState.SORTER_IDLE;
-                }
-                break;
+        if (0 == sorter_state) {
+            if (!(mag7center.isPressed() || mag6center.isPressed())) {
+                ball_sorter_arm.setPower(-0.2);
+                sorter_state = 10;
+            }
+        } else if (1 == sorter_state) {
+            ball_sorter_arm.setPower(1);
+            // Get the current time in milliseconds. The value returned represents
+            // the number of milliseconds since midnight, January 1, 1970 UTC.
+            sorter_timer_start = System.currentTimeMillis();
+            sorter_state = 2;
+        } else if (2 == sorter_state) {
+            // Get the current time in milliseconds. The value returned represents
+            // the number of milliseconds since midnight, January 1, 1970 UTC.
+            if (System.currentTimeMillis() - sorter_timer_start > 430) {
+                ball_sorter_arm.setPower(0.15);
+                // Get the current time in milliseconds. The value returned represents
+                // the number of milliseconds since midnight, January 1, 1970 UTC.
+                sorter_timer_start = System.currentTimeMillis();
+                sorter_state = 3;
+            }
+        } else if (3 == sorter_state) {
+            if (mag4lead.isPressed()) {
+                ball_sorter_arm.setPower(0);
+                sorter_state = 0;
+            }
+        } else if (10 == sorter_state) {
+            if (mag7center.isPressed() || mag6center.isPressed()) {
+                ball_sorter_arm.setPower(0);
+                sorter_state = 0;
+            }
         }
+
+
     }
 }
+
+
 

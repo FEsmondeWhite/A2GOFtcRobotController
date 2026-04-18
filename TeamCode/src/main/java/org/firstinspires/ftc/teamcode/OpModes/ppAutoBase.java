@@ -4,10 +4,13 @@ import com.bylazar.telemetry.TelemetryManager;
 import com.pedropathing.follower.Follower;
 import com.pedropathing.geometry.BezierLine;
 import com.pedropathing.geometry.Pose;
+import com.pedropathing.paths.HeadingInterpolator;
+import com.pedropathing.paths.Path;
 import com.pedropathing.paths.PathChain;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
+import org.firstinspires.ftc.teamcode.gobot.EnPointe;
 import org.firstinspires.ftc.teamcode.gobot.Intake;
 import org.firstinspires.ftc.teamcode.gobot.Launcher;
 import org.firstinspires.ftc.teamcode.gobot.Lifter;
@@ -21,6 +24,23 @@ import java.util.Arrays;
 import java.util.List;
 
 import android.util.Size;
+
+// ------  TODO !!! -------
+// Make sure to "Pseudo-Cache" the Pinpoint follower, to avoid multiple i2c calls!
+//@Override
+//public void loop() {
+//    // 1. Trigger the actual I2C read ONCE
+//    follower.update();
+//
+//    // 2. Cache the result in a local variable (FAST - in RAM)
+//    Pose currentRobotPose = follower.getPose();
+//
+//    // 3. Use that local variable for EVERYTHING else in the loop
+//    sorter.checkPosition(currentRobotPose);
+//    launcher.updateTarget(currentRobotPose);
+//}
+
+
 
 // Note that we want to have auto pre-load the tele routines. This is done in the different instances.
 //https://ftc-docs.firstinspires.org/en/latest/programming_resources/shared/auto_load_opmode/auto-load-opmode.html
@@ -43,6 +63,7 @@ abstract public class ppAutoBase extends OpMode {
 
     //Timers and flags
     private ElapsedTime taskTimer;
+//    private ElapsedTime totalTimer;
     private boolean taskFlag=false;
 
     private final ArrayList<PathChain> pathA = new ArrayList<>();
@@ -87,8 +108,8 @@ abstract public class ppAutoBase extends OpMode {
 
     private Pose shootPose;
     double shootSpeedRPS;
-    double rearSpeedRPS = 57.5;
-    double frontSpeedRPS = 53;
+    double rearSpeedRPS = 58.5;
+    double frontSpeedRPS = 54;
     private Pose frontShootPose;
     private Pose rearShootPose;
     private Pose endPose;
@@ -193,12 +214,22 @@ abstract public class ppAutoBase extends OpMode {
                         .setLinearHeadingInterpolation(shootPose.getHeading(), endPose.getHeading())
                         .build()
         );
+
+//        //[8] Emergency endPose
+//        // TRAJ_8,   //Move to end pose
+//        pathA.add(
+//                follower.pathBuilder()
+//                        .addPath(new BezierLine(follower::getPose, endPose))
+//                        .setLinearHeadingInterpolation(follower::getHeading, endPose.getHeading())
+//                        .build()
+//        );
     }
 
     private Intake intake;
     private Sorter sorter;
     private Lifter lifter;
     private Launcher launcher;
+    private EnPointe enpointe;
 
     //    private int AllianceColor = 1; // Blue is 1
     //    private int AllianceColor = 2; // Red is 2
@@ -246,7 +277,7 @@ abstract public class ppAutoBase extends OpMode {
                 endPose = new Pose(48,128, 4.71239); // 270 degrees
             }
         } else if (AllianceColor == 2) {
-            frontShootPose = new Pose(86,14, (double) Math.toRadians(66)); // Math.toRadians(66.5));
+            frontShootPose = new Pose(86,14, (double) Math.toRadians(67)); // Math.toRadians(66.5));
             rearShootPose = new Pose(88,85, (double) Math.toRadians(49)); // Math.toRadians(180-133)); 47 deg
             if (StartPosition == 1) {
                 shootPose = frontShootPose;
@@ -336,6 +367,7 @@ abstract public class ppAutoBase extends OpMode {
         launcher = new Launcher();
         launcher.init(hardwareMap);
         taskCount = 0;
+        enpointe = new EnPointe();
 
         // Initialize the Vision Detection utility
         vision = new VisionDetection(
@@ -379,7 +411,6 @@ abstract public class ppAutoBase extends OpMode {
         follower.update();
 
         this.sorter.balls.telemetry();
-
 
 //        telemetryM.debug("position", follower.getPose());
 //        telemetryM.debug("velocity", follower.getVelocity());
@@ -431,6 +462,16 @@ abstract public class ppAutoBase extends OpMode {
 //            launcher.disableMotor(); // turn off flywheel
 
     public void updatePath() {
+//        if ((currentState!=State.IDLE)&& (totalTimer.milliseconds() > 27300)) {
+//            launcher.disableMotor(); // turn off flywheel
+//            currentState = State.TRAJ_7;
+//            follower.followPath(pathA.get(7), true);
+//
+////            this.pathChainHuman = () -> follower.pathBuilder() //Lazy Curve Generation
+////                    .addPath(new Path(new BezierLine(follower::getPose, HumanPose)))
+////                    .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(follower::getHeading, HumanPose.getHeading(), 0.8))
+////                    .build();
+//        }
         switch (currentState) {
             //Prior to start
             case IDLE:
@@ -440,6 +481,7 @@ abstract public class ppAutoBase extends OpMode {
             //[0] Move to scan pose
             case TRAJ_0:
                 if (!follower.isBusy()) {
+//                    totalTimer.reset(); // Reset & start the timer
 
                     // Start the flywheel
                     launcher.enableMotor(); // turn on flywheel
@@ -459,6 +501,12 @@ abstract public class ppAutoBase extends OpMode {
                         taskTimer.reset(); // Reset & start the timer
                         taskState = TaskState.TASK_SCANNING;
                     }
+                    if (taskTimer.milliseconds() > 1000) {
+                        // We didn't find the pattern within one second
+                        patternID = 22; // We will guess the pattern and move on
+                        colorPattern = Arrays.asList('P', 'G', 'P'); // Assuming PGP, P starts 2/3 patterns. We will pre-load PGP.
+                        this.sorter.balls.setPatternList(colorPattern);
+                    }
                     if (!taskFlag) {
                         // Add code to scan the april tag!
                         patternID = vision.getDetectedPatternID();
@@ -471,11 +519,6 @@ abstract public class ppAutoBase extends OpMode {
                             // Then move to the next position
                             currentState = State.TRAJ_1;
                         }
-                    } else if (taskTimer.milliseconds() > 1000) {
-                        // We didn't find the pattern within one second
-                        patternID = 22; // We will guess the pattern and move on
-                        colorPattern = Arrays.asList('P', 'G', 'P'); // Assuming PGP, P starts 2/3 patterns. We will pre-load PGP.
-                        this.sorter.balls.setPatternList(colorPattern);
                     }
                 }
                 break;
