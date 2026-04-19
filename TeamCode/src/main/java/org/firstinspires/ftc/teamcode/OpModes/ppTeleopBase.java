@@ -89,6 +89,13 @@ abstract public class ppTeleopBase extends OpMode {
     Gamepad currentGamepad2;
     Gamepad previousGamepad2;
 
+    Pose currentPose;
+    double currentHeading;
+    boolean followerBusy;
+    private boolean lastRedLedState;
+//    private boolean lastGreenLedState;
+    private boolean desiredRedLedState;
+
     // Get pose and heading based on alliance color and start position (front/back)
     public ppTeleopBase(int AllianceColor, int StartPosition) {
 
@@ -154,6 +161,18 @@ abstract public class ppTeleopBase extends OpMode {
         currentGamepad2.copy(gamepad2);
         previousGamepad2.copy(currentGamepad2);
 
+        // Initialize the LED from the hardware map
+        // The name "myLED" must match the name in your configuration file
+        redLED = hardwareMap.get(LED.class, "lockdown_LED1");
+        redLED.enable(false);
+
+//        // Set the LED as an output device
+//        greenLED.setMode(DigitalChannel.Mode.OUTPUT);
+//        redLED.setMode(DigitalChannel.Mode.OUTPUT);
+
+        lastRedLedState = false;
+//        lastGreenLedState = false;
+
         intake = new Intake();
         intake.init(hardwareMap);
         lifter = new Lifter();
@@ -165,14 +184,7 @@ abstract public class ppTeleopBase extends OpMode {
         enpoint = new EnPointe();
         enpoint.init(hardwareMap);
 
-        // Initialize the LED from the hardware map
-        // The name "myLED" must match the name in your configuration file
-        redLED = hardwareMap.get(LED.class, "lockdown_LED1");
-        redLED.enable(false);
-
-//        // Set the LED as an output device
-//        greenLED.setMode(DigitalChannel.Mode.OUTPUT);
-//        redLED.setMode(DigitalChannel.Mode.OUTPUT);
+        automatedDrive = false;
 
         int currentBall = 0; // Set the pattern position to ball 0
 
@@ -190,23 +202,23 @@ abstract public class ppTeleopBase extends OpMode {
 //        telemetryM = PanelsTelemetry.INSTANCE.getTelemetry();
 
         this.pathChainRear = () -> follower.pathBuilder() //Lazy Curve Generation
-                .addPath(new Path(new BezierLine(follower::getPose, rearShootPose)))
-                .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(follower::getHeading, rearShootPose.getHeading(), 0.8))
+                .addPath(new Path(new BezierLine(currentPose, rearShootPose)))
+                .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(() -> currentHeading, rearShootPose.getHeading(), 0.8))
                 .build();
 
         this.pathChainFront = () -> follower.pathBuilder() //Lazy Curve Generation
-                .addPath(new Path(new BezierLine(follower::getPose, frontShootPose)))
-                .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(follower::getHeading, frontShootPose.getHeading(), 0.8))
+                .addPath(new Path(new BezierLine(currentPose, frontShootPose)))
+                .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(() -> currentHeading, frontShootPose.getHeading(), 0.8))
                 .build();
 
         this.pathChainPark = () -> follower.pathBuilder() //Lazy Curve Generation
-                .addPath(new Path(new BezierLine(follower::getPose, ParkPose)))
-                .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(follower::getHeading, ParkPose.getHeading(), 0.8))
+                .addPath(new Path(new BezierLine(currentPose, ParkPose)))
+                .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(() -> currentHeading, ParkPose.getHeading(), 0.8))
                 .build();
 
         this.pathChainHuman = () -> follower.pathBuilder() //Lazy Curve Generation
-                .addPath(new Path(new BezierLine(follower::getPose, HumanPose)))
-                .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(follower::getHeading, HumanPose.getHeading(), 0.8))
+                .addPath(new Path(new BezierLine(currentPose, HumanPose)))
+                .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(() -> currentHeading, HumanPose.getHeading(), 0.8))
                 .build();
     }
 
@@ -229,7 +241,10 @@ abstract public class ppTeleopBase extends OpMode {
         }
 
         follower.update(); //Call this once per loop
-        Pose currentRobotPose = follower.getPose();
+        // 3. Cache the values for the rest of the loop
+        currentPose = follower.getPose();
+        currentHeading = follower.getHeading();
+        followerBusy = follower.isBusy();
 
         // 1. Save the previous state to detect new presses
         previousGamepad1.copy(currentGamepad1);
@@ -312,7 +327,7 @@ abstract public class ppTeleopBase extends OpMode {
         {
             launcher.setNominalRPS(
                     launcher.getSpeedNearestToDistance(
-                            launcher.getDistance(currentRobotPose, GoalPose)
+                            launcher.getDistance(currentPose, GoalPose)
                     )
             );
         }
@@ -374,7 +389,7 @@ abstract public class ppTeleopBase extends OpMode {
         // Start automated lockdown mode to hold position
         if (currentGamepad1.yWasReleased()) {
             // ENGAGE HOLD: Capture current pose and lock target
-            lockdownPose = currentRobotPose;
+            lockdownPose = currentPose;
             automatedDrive = true;
             lockdownMode = true;
 
@@ -440,83 +455,43 @@ abstract public class ppTeleopBase extends OpMode {
             }
         }
 
+        // --- REFINED LOCKDOWN LOGIC ---
         if (lockdownMode && !enpoint.isBusy()) {
-            if (!automatedDrive) {
-                // RELEASE HOLD: Switch back to manual teleop
+
+            // 1. ESCAPE CONDITION: If driver touches the stick, kill lockdown
+            if (Math.abs(currentGamepad1.left_stick_x) > 0.20 || Math.abs(currentGamepad1.left_stick_y) > 0.20) {
+                lockdownMode = false;
+                automatedDrive = false;
                 follower.breakFollowing();
                 follower.startTeleopDrive();
-                lockdownMode = false;
-            } else {
-                // Calculate how far we are from the locked spot
-                double distanceError = currentRobotPose.distanceFrom(lockdownPose); // Assumes getDistance exists
-                // If getDistance doesn't exist, use: Math.hypot(currentRobotPose.getX() - lockedPose.getX(), currentRobotPose.getY() - lockedPose.getY());
+            }
+            else {
+                // 2. ERROR CALCULATION
+                double distanceError = currentPose.distanceFrom(lockdownPose);
+                double headingError = Math.abs(currentPose.getHeading() - lockdownPose.getHeading());
 
-                double headingError = Math.abs(currentRobotPose.getHeading() - lockdownPose.getHeading());
-                // Normalize heading error to 0-360 or 0-180 if needed here
+                // 3. FIGHT BACK: Only trigger a new path if we aren't already moving
+                if ((distanceError > HOLD_TOLERANCE_INCHES || headingError > Math.toRadians(HOLD_TOLERANCE_DEGREES))
+                        && !followerBusy) {
 
-                // --- TOLERANCE CHECK (Anti-Buzz) ---
-                if (distanceError < HOLD_TOLERANCE_INCHES && headingError < Math.toRadians(HOLD_TOLERANCE_DEGREES)) {
-                    // We are close enough. Relax the motors to stop buzzing.
-                    follower.breakFollowing();
-                    // Optional: explicitly set 0 power if breakFollowing doesn't coast
-                    // follower.setTeleOpMovement(0, 0, 0, false);
-
-                    if (timingSystem.do_telemetry()) {
-                        telemetry.addData("Status", "HOLDING (Relaxed - In Deadzone)");
-                    }
-                } else {
-                    // We were pushed! FIGHT BACK.
-
-                    // Create the path dynamically from CURRENT -> LOCKED
-                    // This pulls the robot back to the lockedPose
-                    Path lockdownPath = new Path(new BezierLine(currentRobotPose, lockdownPose));
+                    Path lockdownPath = new Path(new BezierLine(currentPose, lockdownPose));
                     lockdownPath.setConstantHeadingInterpolation(lockdownPose.getHeading());
-
                     follower.followPath(lockdownPath, true);
-//                    follower.update(); // follower.update() was being called twice. :(
 
                     if (timingSystem.do_telemetry()) {
-                        telemetry.addData("Status", "HOLDING (Correcting Error!)");
+                        telemetry.addData("Status", "HOLDING (Correcting...)");
                     }
                 }
-
-                if (timingSystem.do_telemetry()) {
-                    telemetry.addData("Err Dist", "%.2f in", distanceError);
+                // 4. SETTLE: If we are close enough and still moving, stop.
+                else if (distanceError < (HOLD_TOLERANCE_INCHES * 0.8) && followerBusy) {
+                    follower.breakFollowing();
                 }
             }
+
+            if (timingSystem.do_telemetry() && lockdownMode) {
+                telemetry.addData("Err Dist", "%.2f in", currentPose.distanceFrom(lockdownPose));
+            }
         }
-
-//        if (holdingPosition) {
-//            // --- ENGAGE HOLD (THE FIX) ---
-//
-//            // 1. Capture exact current pose
-//            Pose currentPose = follower.getPose();
-//
-//            // 2. Create a "Path" that starts and ends at the exact same spot.
-//            //    This forces the Follower to enter "Path Following" mode.
-//            Point holdPoint = new Point(currentPose);
-//            Path holdPath = new Path(new BezierLine(holdPoint, holdPoint));
-//
-//            // 3. Set the heading to remain constant (the current heading)
-//            holdPath.setConstantHeadingInterpolation(currentPose.getHeading());
-//
-//            // 4. Instruct Follower to follow this path and HOLD the end
-//            follower.followPath(holdPath, true);
-//
-//        } else {
-//            // --- RELEASE HOLD ---
-//            // Break the path following to return to TeleOp control
-//            follower.breakFollowing();
-//            follower.startTeleOp();
-//        }
-
-
-//        follower.activateHeading();
-//        forwards = new Path(new BezierLine(new Pose(0,0), new Pose(DISTANCE,0)));
-//        forwards.setConstantHeadingInterpolation(0);
-//        backwards = new Path(new BezierLine(new Pose(DISTANCE,0), new Pose(0,0)));
-//        backwards.setConstantHeadingInterpolation(0);
-//        follower.followPath(forwards);
 
         //Stop automated following if the follower is done or we want to cancel.
         if (automatedDrive &&
@@ -528,11 +503,7 @@ abstract public class ppTeleopBase extends OpMode {
             automatedDrive = false;
         }
 
-
         //Moderate speed mode
-//        if (currentGamepad1.leftBumperWasPressed()) {
-//            slowMode = !slowMode;
-//        }
         if (currentGamepad1.leftBumperWasPressed()) {
             if (driveSpeedMax == fullSpeed) {
                 // Toggle to moderateSpeed
@@ -547,32 +518,29 @@ abstract public class ppTeleopBase extends OpMode {
 
 
         //Slow Mode
-//        if (currentGamepad1.rightBumperWasPressed()) {
-//            slowMode = !slowMode;
-//        }
         if (currentGamepad1.right_bumper) {
             slowMode = true;
         } else {
             slowMode = false;
         }
 
-//        //Optional way to change slow mode strength
-//        if (currentGamepad1.xWasPressed()) {
-//            slowModeMultiplier += 0.25;
-//        }
-//
-//        //Optional way to change slow mode strength
-//        if (currentGamepad2.yWasPressed()) {
-//            slowModeMultiplier -= 0.25;
-//        }
-
 //        greenLED = hardwareMap.get(DigitalChannel.class, "lockdown_LED1");
 //        redLED = hardwareMap.get(DigitalChannel.class, "lockdown_LED2");
+//        lastRedLedState = false;
+//        lastGreenLedState = false;
 
-        if (automatedDrive==true) {
-            redLED.enable(true);
+        // Light the LED when automated drive mode is enabled
+        if (lockdownMode) {
+            // Blink: Desired state flips between true/false based on clock
+            desiredRedLedState = (System.currentTimeMillis() % 200) < 100;
         } else {
-            redLED.enable(false);
+            // Solid: Desired state matches automatedDrive
+            desiredRedLedState = automatedDrive;
+        }
+
+        if (desiredRedLedState != lastRedLedState) {
+            redLED.enable(desiredRedLedState);
+            lastRedLedState = desiredRedLedState; // Update the cache
         }
 
         // ACT Section (Motor Commands):
@@ -584,7 +552,7 @@ abstract public class ppTeleopBase extends OpMode {
         enpoint.update();
 
         if (timingSystem.do_telemetry()) {
-//            telemetryM.debug("position", currentRobotPose);
+//            telemetryM.debug("position", currentPose);
 //            telemetryM.debug("velocity", follower.getVelocity());
 //            telemetryM.debug("automatedDrive", automatedDrive);
 //            telemetryM.update();
