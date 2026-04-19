@@ -7,7 +7,9 @@ import com.pedropathing.geometry.Pose;
 import com.pedropathing.paths.HeadingInterpolator;
 import com.pedropathing.paths.Path;
 import com.pedropathing.paths.PathChain;
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.hardware.LED;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.teamcode.gobot.EnPointe;
@@ -16,6 +18,7 @@ import org.firstinspires.ftc.teamcode.gobot.Launcher;
 import org.firstinspires.ftc.teamcode.gobot.Lifter;
 import org.firstinspires.ftc.teamcode.gobot.PoseStorage;
 import org.firstinspires.ftc.teamcode.gobot.Sorter;
+import org.firstinspires.ftc.teamcode.gobot.TimingOptimization;
 import org.firstinspires.ftc.teamcode.pedroPathing.Constants;
 import org.firstinspires.ftc.teamcode.gobot.VisionDetection;
 
@@ -62,6 +65,7 @@ abstract public class ppAutoBase extends OpMode {
 
     //Timers and flags
     private ElapsedTime taskTimer;
+    double intakeWaitTime;
 //    private ElapsedTime totalTimer;
     private boolean taskFlag=false;
 
@@ -224,11 +228,20 @@ abstract public class ppAutoBase extends OpMode {
 //        );
     }
 
+    private TimingOptimization timingSystem;
+    List<LynxModule> allHubs;
     private Intake intake;
     private Sorter sorter;
     private Lifter lifter;
     private Launcher launcher;
     private EnPointe enpointe;
+    Pose currentPose;
+    double currentHeading;
+    boolean followerBusy;
+    LED redLED;
+    private boolean lastRedLedState;
+    private boolean desiredRedLedState;
+
 
     //    private int AllianceColor = 1; // Blue is 1
     //    private int AllianceColor = 2; // Red is 2
@@ -357,6 +370,18 @@ abstract public class ppAutoBase extends OpMode {
 
     @Override
     public void init() {
+        allHubs = hardwareMap.getAll(LynxModule.class);
+        for (LynxModule hub : allHubs) {
+            hub.setBulkCachingMode(LynxModule.BulkCachingMode.MANUAL);
+        }
+
+        timingSystem = new TimingOptimization(telemetry);
+        timingSystem.init();
+
+        redLED = hardwareMap.get(LED.class, "lockdown_LED1");
+        redLED.enable(false);
+        lastRedLedState = false;
+
         intake = new Intake();
         intake.init(hardwareMap);
         lifter = new Lifter();
@@ -379,6 +404,7 @@ abstract public class ppAutoBase extends OpMode {
         );
 
         taskTimer=new ElapsedTime();
+        intakeWaitTime = 1;
         //Drivetrain (PP)
         follower = Constants.createFollower(hardwareMap);
         buildPaths();
@@ -395,414 +421,211 @@ abstract public class ppAutoBase extends OpMode {
         follower.startTeleopDrive();
     }
 
-
     @Override
     public void loop() {
-        // These loop the movements of the robot, these must be called continuously in order to work
+        for (LynxModule hub : allHubs) { hub.clearBulkCache(); }
+        // 1. THE PULSE: Update follower and cache the pose immediately.
+        // This ensures every subsystem uses the same coordinate snapshot for this loop.
+        follower.update();
+        currentPose = follower.getPose();
+        currentHeading = follower.getHeading();
+        followerBusy = follower.isBusy();
 
+        PoseStorage.currentPose = currentPose;
+
+        timingSystem.update();
+
+        // 2. SUBSYSTEM UPDATES
         sorter.update();
         lifter.update();
         launcher.update();
 
+        // 3. PATH LOGIC
+        // We pass the cached pose to updatePath to avoid redundant getPose() calls inside the switch.
         updatePath();
 
-        //Call this once per loop
-        follower.update();
+        // 4. OPTIMIZED TELEMETRY (Using your timingSystem)
+        if (timingSystem.do_telemetry()) {
+            telemetry.addData("Path State", currentState);
+            telemetry.addData("Pose", "X: %.1f, Y: %.1f, H: %.2f",
+                    currentPose.getX(),
+                    currentPose.getY(),
+                    currentPose.getHeading());
+            telemetry.addData("Launcher", "Setpoint: %.1f | Actual: %.1f RPS",
+                    launcher.getActiveSetpointRPS(),
+                    launcher.actual_RPS);
+            telemetry.addData("Launcher Nominal", "%.1f RPS", launcher.getNominalRPS());
+            // Subsystem-specific telemetry
+            this.sorter.balls.telemetry();
 
-        this.sorter.balls.telemetry();
-
-//        telemetryM.debug("position", follower.getPose());
-//        telemetryM.debug("velocity", follower.getVelocity());
-//        telemetryM.update();
-
-//        this.sorter.balls.detailedTelemetry();
-
-        // Feedback to Driver Hub for debugging
-        telemetry.addData("path state", currentState);
-        telemetry.addData("x", follower.getPose().getX());
-        telemetry.addData("y", follower.getPose().getY());
-        telemetry.addData("heading", follower.getPose().getHeading());
-
-        telemetry.addData("Flywheel setpoint: ", launcher.getNominalRPS());
-        telemetry.addData("Flywheel actual: ", launcher.actual_RPS);
-        telemetry.update();
-//        telemetryM.update();
-
-        // Read current pose and save to storage
-//        Pose currentPose = follower.getPose();
-        PoseStorage.currentPose = follower.getPose();
+            // Single update call to push the buffer to the Driver Station
+            telemetry.update();
+        }
     }
-        // Intake
-//            intake.setIntake(5); // intake
-//            intake.setIntake(-2); // push out
-//            intake.setIntake(0); // turn off
-
-        // Sorter
-//        if (!lifter.isBusy()) {
-//                sorter.start(1); // Sort the ball
-//        }
-
-        // Lifter
-//        if (!sorter.isBusy()) {
-//                lifter.start(); // Lift/launch the ball
-//        }
-
-        // Flywheel
-//            launcher.setNominalRPS(shootSpeedRPS);
-//            launcher.setNominalRPS(0);
-
-        // static public flywheel PIDF allows it to be changed in panels
-//            launcher.enableMotor(); // turn on flywheel
-//            telemetry.addData("Flywheel setpoint: ", launcher.getNominalRPS());
-//            telemetry.addData("Flywheel actual: ", launcher.getActualRPS());
-//        telemetryM.addData("Flywheel setpoint", launcher.getNominalRPS());
-//        telemetryM.addData("Flywheel actual", launcher.getActualRPS());
-//
-//            launcher.disableMotor(); // turn off flywheel
 
     public void updatePath() {
-//        if ((currentState!=State.IDLE)&& (totalTimer.milliseconds() > 27300)) {
-//            launcher.disableMotor(); // turn off flywheel
-//            currentState = State.TRAJ_7;
-//            follower.followPath(pathA.get(7), true);
-//
-////            this.pathChainHuman = () -> follower.pathBuilder() //Lazy Curve Generation
-////                    .addPath(new Path(new BezierLine(follower::getPose, HumanPose)))
-////                    .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(follower::getHeading, HumanPose.getHeading(), 0.8))
-////                    .build();
-//        }
+        // --- LED State Management (Bus-Safe) ---
+        // Red LED indicates the autonomous program is actively processing a trajectory or task
+        desiredRedLedState = (currentState != State.IDLE && currentState != State.STOP);
+        if (desiredRedLedState != lastRedLedState) {
+            redLED.enable(desiredRedLedState);
+            lastRedLedState = desiredRedLedState;
+        }
+
         switch (currentState) {
-            //Prior to start
             case IDLE:
                 currentState = State.TRAJ_0;
                 break;
 
-            //[0] Move to scan pose
             case TRAJ_0:
-                if (!follower.isBusy()) {
-//                    totalTimer.reset(); // Reset & start the timer
-
-                    // Start the flywheel
-                    launcher.enableMotor(); // turn on flywheel
+                // Use cached followerBusy to avoid extra method overhead
+                if (!followerBusy) {
                     launcher.setNominalRPS(shootSpeedRPS);
-
+                    launcher.enableMotor();
                     follower.followPath(pathA.get(0), true);
                     currentState = State.SCAN;
-                    taskFlag = false;
                     taskState = TaskState.TASK_IDLE;
                 }
                 break;
 
-            // Scan the april tag
             case SCAN:
-                if (!follower.isBusy()) {
+                if (!followerBusy) {
                     if (taskState == TaskState.TASK_IDLE) {
-                        taskTimer.reset(); // Reset & start the timer
+                        taskTimer.reset();
                         taskState = TaskState.TASK_SCANNING;
                     }
-                    if (taskTimer.milliseconds() > 1000) {
-                        // We didn't find the pattern within one second
-                        patternID = 22; // We will guess the pattern and move on
-                        colorPattern = Arrays.asList('P', 'G', 'P'); // Assuming PGP, P starts 2/3 patterns. We will pre-load PGP.
-                        this.sorter.balls.setPatternList(colorPattern);
-                    }
-                    if (!taskFlag) {
-                        // Add code to scan the april tag!
-                        patternID = vision.getDetectedPatternID();
-                        if (patternID != 0) {
-                            // Feedback to Driver Hub for debugging
-                            telemetry.addData("Pattern Identified: ", patternID);
+
+                    patternID = vision.getDetectedPatternID();
+                    // If we find it, or time out after 1 second
+                    if (patternID != 0 || taskTimer.milliseconds() > 1000) {
+                        if (patternID == 0) {
+                            patternID = 22;
+                            colorPattern = Arrays.asList('P', 'G', 'P');
+                        } else {
                             colorPattern = vision.getArtifactColorPattern();
-                            this.sorter.balls.setPatternList(colorPattern);
-                            taskFlag = true; // Done scanning, we have the pattern
-                            // Then move to the next position
-                            currentState = State.TRAJ_1;
                         }
+                        this.sorter.balls.setPatternList(colorPattern);
+                        currentState = State.TRAJ_1;
+                        taskState = TaskState.TASK_IDLE;
                     }
                 }
                 break;
 
-            //[1] Move to shoot pose
             case TRAJ_1:
-                if (!follower.isBusy()) {
-                    // Move to the shoot position
-                    follower.setMaxPower(0.8); //SLOW DOWN!!!
+                if (!followerBusy) {
+                    follower.setMaxPower(0.8);
                     follower.followPath(pathA.get(1), true);
                     currentState = State.SHOOT_A;
-                    // Configure for the shooting state machine
-//                    taskFlag = false;
-//                    taskCount = 3;
-                    taskState = TaskState.TASK_IDLE;
                 }
                 break;
 
-//            launchState
-//                IDLE,      //Prior to start
-//                LIFTING,   //Lift/launch
-//                SORTING,     //Find the new ball
-//                DONE
-
-            //Shoot 3 Balls
             case SHOOT_A:
-                // We need to add code to look for the pattern colored balls before launching.
-                if (!follower.isBusy()) {
-                    //SHOOT SEQUENCE HERE
+            case SHOOT_B:
+                if (!followerBusy) {
                     this.sorter.balls.updateColors();
-                    // We will look at the current task state.
-                    // If we're not doing something, then check if we have the correct ball, or can get a ball.
-                    // We will launch if have the right ball, or a ball (if the correct ball isn't available).
-                    // We will sort if there are balls, but we don't have the correct one (or any ball).
-                    // If there are no balls loaded, then we're done launching.
+
                     switch (taskState) {
                         case TASK_IDLE:
-                            // We have a list of the actual ball colors in the sorter:
-                            //   this.sorter.balls.getColorList()
-                            // We have a list of the desired pattern:
-                            //   this.colorPattern
-                            // And we know the ball we're currently wanting to launch:
-                            //   this.currentBall
-
-                            // We will shoot up to the specified number (taskCount) of balls.
-                            // First, we need to sort to line up the correct ball, if available.
-                            // Then we will shoot the ball
-                            //      we need to lift the ball
-                            // Then we will move on
                             if (this.sorter.balls.targetMatchForLaunch()) {
-                                // if the correct ball is already lined up, then launch.
                                 if (!sorter.isBusy() && launcher.isReady()) {
-                                    lifter.start(); // Lift/launch the ball
+                                    lifter.start();
                                     taskState = TaskState.TASK_LIFTING;
                                 }
-
-                            } else if (this.sorter.balls.targetColorAvailable()) {
-                                // if the correct ball is available, but not lined up, then sort.
-                                if (!lifter.isBusy()) {
-                                    sorter.start(1); // Sort the ball
-                                    taskState = TaskState.TASK_SORTING;
-                                }
-
-                            } else if (this.sorter.balls.anyBallReadyForLaunch()) {
-                                // if the correct ball is not available, but we have a ball, then launch.
-                                if (!sorter.isBusy()) {
-                                    lifter.start(); // Lift/launch the ball
-                                    taskState = TaskState.TASK_LIFTING;
-                                }
-
                             } else if (this.sorter.balls.anyBallAvailable()) {
-                                // if the correct ball is not available, but we do have a ball somewhere, then sort.
-                                if (!lifter.isBusy()) {
-                                    sorter.start(1); // Sort the ball
+                                // If target color isn't ready, but balls exist, sort.
+                                if (!lifter.isBusy() && !sorter.isBusy()) {
+                                    sorter.start(1);
                                     taskState = TaskState.TASK_SORTING;
                                 }
-
                             } else {
-                                // if no ball is available, then we're done. Move to the next state.
+                                // No balls left in sorter: Transition out
                                 taskState = TaskState.TASK_IDLE;
-                                launcher.disableMotor(); // turn off flywheel
-                                currentState = State.TRAJ_2;
-                                follower.setMaxPower(1); //Speed up
+                                launcher.disableMotor();
+                                follower.setMaxPower(1.0);
+                                if (currentState == State.SHOOT_A) {
+                                    intake.setIntake(5); // Start intake rollers early here!
+                                    currentState = State.TRAJ_2;
+                                } else {
+                                    currentState = State.TRAJ_7;
+                                }
                             }
                             break;
+
                         case TASK_LIFTING:
-                            if (!lifter.isBusy()) { // This will be true when it's done lifting
-                                taskState = TaskState.TASK_IDLE;
-                            }
+                            if (!lifter.isBusy()) taskState = TaskState.TASK_IDLE;
                             break;
+
                         case TASK_SORTING:
-                            if (!sorter.isBusy()) { // This will be true when it's done sorting
-                                taskState = TaskState.TASK_IDLE;
-                            }
-                        break;
+                            if (!sorter.isBusy()) taskState = TaskState.TASK_IDLE;
+                            break;
                     }
                 }
                 break;
 
-
-            //[2] Move in front of first stack
             case TRAJ_2:
-                if (!follower.isBusy()) {
-                    intake.setIntake(5); // intake
+                if (!followerBusy) {
+                    // intake.setIntake(5);
                     follower.followPath(pathA.get(2), true);
-                    taskState = TaskState.TASK_IDLE;
                     currentState = State.TRAJ_3;
                 }
                 break;
 
-
-            //[3] Collect ball 1
             case TRAJ_3:
-                if (!follower.isBusy()) {
-                    switch (taskState) {
-                        case TASK_IDLE:
-                            // Rotate the ball sorter
-                            if (!lifter.isBusy()) {
-                                sorter.start(1); // turn the ball sorter
-                                intake.setIntake(-2); // reverse the intake
-                                taskState = TaskState.TASK_SORTING;
-                            }
-                            break;
-                        case TASK_SORTING:
-                            if (!sorter.isBusy()) {
-                                intake.setIntake(5); // turn the intake back on
-                                follower.setMaxPower(0.2); //SLOW DOWN!!!
-                                follower.followPath(pathA.get(3), true);
-                                taskState = TaskState.TASK_IDLE;
-                                currentState = State.TRAJ_4;
-                            }
-                            break;
-                    }
-                }
-                break;
-
-            //[4] Collect ball 2
             case TRAJ_4:
-                if (!follower.isBusy()) {
-                    switch (taskState) {
-                        case TASK_IDLE:
-                            // Rotate the ball sorter
-                            if (!lifter.isBusy()) {
-                                sorter.start(1); // Lift/launch the ball
-                                intake.setIntake(-2); // reverse the intake
-                                taskState = TaskState.TASK_SORTING;
-                            }
-                            break;
-                        case TASK_SORTING:
-                            if (!sorter.isBusy()) {
-                                intake.setIntake(5); // turn the intake back on
-                                follower.followPath(pathA.get(4), true);
-                                taskState = TaskState.TASK_IDLE;
-                                currentState = State.TRAJ_5;
-                            }
-                            break;
-                    }
-                }
-                break;
-
-            //[5] Collect ball 3
             case TRAJ_5:
-                if (!follower.isBusy()) {
+                if (!followerBusy) {
                     switch (taskState) {
                         case TASK_IDLE:
-                            // Rotate the ball sorter
                             if (!lifter.isBusy()) {
-                                sorter.start(1); // Lift/launch the ball
-                                intake.setIntake(-2); // reverse the intake
+                                sorter.start(1);
+                                intake.setIntake(-2); // Burst reverse to help ball seating
                                 taskState = TaskState.TASK_SORTING;
                             }
                             break;
                         case TASK_SORTING:
                             if (!sorter.isBusy()) {
-                                intake.setIntake(5); // turn the intake back on
+                                intake.setIntake(5);
+                                follower.setMaxPower(0.2);
+                                // Map the current trajectory to the path index
+                                int pathIndex = (currentState == State.TRAJ_3) ? 3 : (currentState == State.TRAJ_4 ? 4 : 5);
+                                follower.followPath(pathA.get(pathIndex), true);
+
                                 taskState = TaskState.TASK_IDLE;
-                                taskTimer.reset(); // Start the timer. Wait 1.5 seconds to pull in ball #3.
-                                follower.followPath(pathA.get(5), true);
-                                currentState = State.TRAJ_6;
+                                taskTimer.reset();
+                                // Advance state
+                                if (currentState == State.TRAJ_3) currentState = State.TRAJ_4;
+                                else if (currentState == State.TRAJ_4) currentState = State.TRAJ_5;
+                                else currentState = State.TRAJ_6;
                             }
                             break;
                     }
                 }
                 break;
 
-            //[6] Move to shoot pose
             case TRAJ_6:
-                if (!follower.isBusy() && taskTimer.time() > 1.5) {
-                    intake.setIntake(0); // turn the intake off
+                // Wait for the final intake pull-in time we set in TRAJ_5
+                // Intake wait time -> was 1.5. I'm setting it to 1
+                if (!followerBusy && taskTimer.time() > intakeWaitTime) {
+                    intake.setIntake(0);
+                    launcher.enableMotor();
+                    follower.setMaxPower(1.0);
                     follower.followPath(pathA.get(6), true);
-                    follower.setMaxPower(1.0); //BACK TO FULL SPEED
                     currentState = State.SHOOT_B;
-                    taskFlag = false;
-                    launcher.enableMotor(); // turn on flywheel
-                    taskCount = 3;
-                    taskState = TaskState.TASK_IDLE;
                 }
                 break;
 
-            //Shoot 3 Balls
-            case SHOOT_B:
-                // We need to add code to look for the pattern colored balls before launching.
-                if (!follower.isBusy()) {
-                    //SHOOT SEQUENCE HERE
-                    this.sorter.balls.updateColors();
-                    // We will look at the current task state.
-                    // If we're not doing something, then check if we have the correct ball, or can get a ball.
-                    // We will launch if have the right ball, or a ball (if the correct ball isn't available).
-                    // We will sort if there are balls, but we don't have the correct one (or any ball).
-                    // If there are no balls loaded, then we're done launching.
-                    switch (taskState) {
-                        case TASK_IDLE:
-                            // We have a list of the actual ball colors in the sorter:
-                            //   this.sorter.balls.getColorList()
-                            // We have a list of the desired pattern:
-                            //   this.colorPattern
-                            // And we know the ball we're currently wanting to launch:
-                            //   this.currentBall
-
-                            // We will shoot up to the specified number (taskCount) of balls.
-                            // First, we need to sort to line up the correct ball, if available.
-                            // Then we will shoot the ball
-                            //      we need to lift the ball
-                            // Then we will move on
-                            if (this.sorter.balls.targetMatchForLaunch()) {
-                                // if the correct ball is already lined up, then launch.
-                                if (!sorter.isBusy() && launcher.isReady()) {
-                                    lifter.start(); // Lift/launch the ball
-                                    taskState = TaskState.TASK_LIFTING;
-                                }
-
-                            } else if (this.sorter.balls.targetColorAvailable()) {
-                                // if the correct ball is available, but not lined up, then sort.
-                                if (!lifter.isBusy()) {
-                                    sorter.start(1); // Sort the ball
-                                    taskState = TaskState.TASK_SORTING;
-                                }
-
-                            } else if (this.sorter.balls.anyBallReadyForLaunch()) {
-                                // if the correct ball is not available, but we have a ball, then launch.
-                                if (!sorter.isBusy()) {
-                                    lifter.start(); // Lift/launch the ball
-                                    taskState = TaskState.TASK_LIFTING;
-                                }
-
-                            } else if (this.sorter.balls.anyBallAvailable()) {
-                                // if the correct ball is not available, but we do have a ball somewhere, then sort.
-                                if (!lifter.isBusy()) {
-                                    sorter.start(1); // Sort the ball
-                                    taskState = TaskState.TASK_SORTING;
-                                }
-
-                            } else {
-                                // if no ball is available, then we're done. Move to the next state.
-                                taskState = TaskState.TASK_IDLE;
-                                launcher.disableMotor(); // turn off flywheel
-                                currentState = State.TRAJ_7;
-                                follower.followPath(pathA.get(7), true);
-                            }
-                            break;
-                        case TASK_LIFTING:
-                            if (!lifter.isBusy()) { // This will be true when it's done lifting
-                                taskState = TaskState.TASK_IDLE;
-                            }
-                            break;
-                        case TASK_SORTING:
-                            if (!sorter.isBusy()) { // This will be true when it's done sorting
-                                taskState = TaskState.TASK_IDLE;
-                            }
-                            break;
-                    }
-                }
-                break;
-
-            //[7] Move to STOP pose
             case TRAJ_7:
-                if (!follower.isBusy()) {
+                if (!followerBusy) {
+                    follower.followPath(pathA.get(7), true);
                     currentState = State.STOP;
                 }
                 break;
 
             case STOP:
-                //Nothing
+                launcher.disableMotor();
+                intake.setIntake(0);
+                // Program Finished
                 break;
         }
-
     }
 }

@@ -145,9 +145,15 @@ abstract public class ppTeleopBase extends OpMode {
         sorter = new Sorter(hardwareMap, telemetry); sorter.init(lifter);
         launcher = new Launcher(); launcher.init(hardwareMap);
         enpoint = new EnPointe(); enpoint.init(hardwareMap);
+        if (StartPosition == 1) {
+            launcher.setNominalRPS(57);
+        } else if (StartPosition == 2) {
+            launcher.setNominalRPS(52.5);
+        } // Front vs Back
 
         robotCentric = true;
         automatedDrive = false;
+        autoFlywheelSpeed = false;
 
         follower = Constants.createFollower(hardwareMap);
         driveSpeedMax = fullSpeed;
