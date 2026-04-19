@@ -16,51 +16,25 @@ import java.util.Arrays;
 import java.util.List;
 
 public class BallColors {
-    // Determine which balls are present, and what color they are
-
-    // If the distance is above the threshold, there is no ball present (ID = 0)
-    // In color sensor dist threshold is 8
-    // Hold color sensor dist threshold is 8
-    // Out color sensor dist threshold is 6
-
-    // G/R above 2 means green (ID = 1). Otherwise purple (ID = 2)
-
-    // No ball shows character 'N'. Green shows 'G'. Purple shows 'P'.
-
     private HardwareMap hwMap;
     private Telemetry telemetry;
 
-    private ColorSensor in_ColorSensor;
-    private int in_r, in_g, in_b;
-    private Double in_dist;
-    private int in_ID;
-    private Character in_color = 'N';
+    private ColorSensor in_ColorSensor, hold_ColorSensor, out_ColorSensor;
+    private DistanceSensor in_DistSensor, hold_DistSensor, out_DistSensor;
 
-    private ColorSensor hold_ColorSensor;
-    private int hold_r, hold_g, hold_b;
-    private Double hold_dist;
-    private int hold_ID;
-    private Character hold_color = 'N';
+    private long lastUpdateTime = 0;
+    private final long SENSOR_READ_INTERVAL = 100;
 
-    private ColorSensor out_ColorSensor;
-    private int out_r, out_g, out_b;
-    private Double out_dist;
-    private int out_ID;
-    private Character out_color = 'N';
+    private int in_r, in_g, in_b, hold_r, hold_g, hold_b, out_r, out_g, out_b;
+    private Double in_dist, hold_dist, out_dist;
+    private int in_ID, hold_ID, out_ID;
+    private Character in_color = 'N', hold_color = 'N', out_color = 'N';
 
-    private List<Character> colorList; // list of currently held balls
-
-    private List<Character> patternList; // target pattern colors
-
-    public int getPatternIndex() {
-        return patternIndex;
-    }
-
-    public void setPatternIndex(int patternIndex) {
-        this.patternIndex = patternIndex;
-    }
-
+    private List<Character> colorList;
+    private List<Character> patternList;
     private int patternIndex;
+    private Telemetry.Item ballStatusItem;
+    private String lastStatus = "";
 
     public BallColors(@NonNull HardwareMap hwMap, Telemetry telemetry) {
         this.hwMap = hwMap;
@@ -71,90 +45,65 @@ public class BallColors {
         in_ColorSensor = hwMap.get(RevColorSensorV3.class, "Color_Sensor_in");
         hold_ColorSensor = hwMap.get(RevColorSensorV3.class, "Color_Sensor_hold");
         out_ColorSensor = hwMap.get(RevColorSensorV3.class, "Color_Sensor_out");
+
+        in_DistSensor = (DistanceSensor) in_ColorSensor;
+        hold_DistSensor = (DistanceSensor) hold_ColorSensor;
+        out_DistSensor = (DistanceSensor) out_ColorSensor;
+
+        // Create a persistent line that starts as "N N N"
+        ballStatusItem = telemetry.addData("Ball Colors", "In: N  Hold: N  Out: N");
+        ballStatusItem.setRetained(true);
     }
 
     public void updateColors() {
-        in_r=in_ColorSensor.red();
-        in_g=in_ColorSensor.green();
-        in_b=in_ColorSensor.blue();
-        in_dist = ((DistanceSensor) in_ColorSensor).getDistance(DistanceUnit.CM); // Get distance in centimeters
-        // You can also use DistanceUnit.INCH or DistanceUnit.MM
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastUpdateTime < SENSOR_READ_INTERVAL) return;
 
-        hold_r=hold_ColorSensor.red();
-        hold_g=hold_ColorSensor.green();
-        hold_b=hold_ColorSensor.blue();
-        hold_dist = ((DistanceSensor) hold_ColorSensor).getDistance(DistanceUnit.CM); // Get distance in centimeters
+        in_r = in_ColorSensor.red();
+        in_g = in_ColorSensor.green();
+        in_dist = in_DistSensor.getDistance(DistanceUnit.CM);
 
-        out_r=out_ColorSensor.red();
-        out_g=out_ColorSensor.green();
-        out_b=out_ColorSensor.blue();
-        out_dist = ((DistanceSensor) out_ColorSensor).getDistance(DistanceUnit.CM); // Get distance in centimeters
+        hold_r = hold_ColorSensor.red();
+        hold_g = hold_ColorSensor.green();
+        hold_dist = hold_DistSensor.getDistance(DistanceUnit.CM);
+
+        out_r = out_ColorSensor.red();
+        out_g = out_ColorSensor.green();
+        out_dist = out_DistSensor.getDistance(DistanceUnit.CM);
 
         identifyColors();
-        return;
+        lastUpdateTime = currentTime;
+        telemetry();
     }
 
     public void identifyColors() {
         // In ball
-        if (in_dist>11.2) {
-            // no ball
-            in_ID = 0;
-        } else if (1.0*in_g / in_r >= 2.0) {
-            // ball is green
-            in_ID = 1;
-        } else {
-            //ball is purple
-            in_ID = 2;
-        }
+        if (in_dist > 11.2) in_ID = 0;
+        else if (1.0 * in_g / in_r >= 2.0) in_ID = 1;
+        else in_ID = 2;
 
         // Hold ball
-        if (hold_dist>8) {
-            // no ball
-            hold_ID = 0;
-        } else if (1.0*hold_g / hold_r >= 1.8) {
-            // ball is green
-            hold_ID = 1;
-        } else {
-            //ball is purple
-            hold_ID = 2;
-        }
+        if (hold_dist > 8) hold_ID = 0;
+        else if (1.0 * hold_g / hold_r >= 1.8) hold_ID = 1;
+        else hold_ID = 2;
 
         // Out ball
-        if (out_dist>5.5) {
-            // no ball
-            out_ID = 0;
-        } else if (1.0*out_g / out_r >= 1.8) {
-            // ball is green
-            out_ID = 1;
-        } else {
-            //ball is purple
-            out_ID = 2;
-        }
+        if (out_dist > 5.5) out_ID = 0;
+        else if (1.0 * out_g / out_r >= 1.8) out_ID = 1;
+        else out_ID = 2;
+
         in_color = IDtoChar(in_ID);
         hold_color = IDtoChar(hold_ID);
         out_color = IDtoChar(out_ID);
         this.colorList = Arrays.asList(in_color, hold_color, out_color);
-        return;
     }
 
-    // IDtoChar converts the integer ball color code into a character.
-    //    0: No ball 'N', 1: Green ball 'G', 2: Purple ball 'P'
-    //    // -> this is not returned anymore. Yellow should show as purple instead. 3: Yellow ball",
-    public Character IDtoChar(@NonNull int IDint)  {
-        Character IDchar;
-
-        if (IDint == 0) { // No ball
-            IDchar = 'N';
-        } else if (IDint == 1) { // Green ball
-            IDchar = 'G';
-        } else if (IDint == 2) { // Purple ball
-            IDchar = 'P';
-        } else if (IDint == 3) { // Yellow ball
-            IDchar = 'Y';
-        } else { // Error!
-            IDchar = 'E';
-        }
-        return IDchar;
+    public Character IDtoChar(@NonNull int IDint) {
+        if (IDint == 0) return 'N';
+        if (IDint == 1) return 'G';
+        if (IDint == 2) return 'P';
+        if (IDint == 3) return 'Y';
+        return 'E';
     }
 
     public List<Character> getColorList() {
@@ -168,56 +117,20 @@ public class BallColors {
     public List<Character> getPatternList() {
         return patternList;
     }
-
-
+    // Inside BallColors.java
     public void detailedTelemetry() {
-        // Initialize the string
-        String statusMessage = "";
-
-        // Add characters/strings using concatenation
-        statusMessage += " G/R: ";
-        statusMessage += 10*in_g / in_r;
-        statusMessage += "\t Dist: ";
-        statusMessage += in_dist;
-
-        telemetry.addData("In: ", statusMessage);
-        statusMessage = "";
-
-        // Add characters/strings using concatenation
-        statusMessage += " G/R: ";
-        statusMessage += 10*hold_g / hold_r;
-        statusMessage += "\t Dist: ";
-        statusMessage += hold_dist;
-
-        telemetry.addData("Hold: ", statusMessage);
-        statusMessage = "";
-
-        // Add characters/strings using concatenation
-        statusMessage += " G/R: ";
-        statusMessage += 10*out_g / out_r;
-        statusMessage += "\t Dist: ";
-        statusMessage += out_dist;
-
-        telemetry.addData("Out: ", statusMessage);
-//        telemetry.addLine("This is a secondary line of text.");
-//        telemetry.update();
+        telemetry.addData("In", "G/R: %.2f Dist: %.2f", (1.0*in_g/in_r), in_dist);
+        telemetry.addData("Hold", "G/R: %.2f Dist: %.2f", (1.0*hold_g/hold_r), hold_dist);
+        telemetry.addData("Out", "G/R: %.2f Dist: %.2f", (1.0*out_g/out_r), out_dist);
     }
-
     public void telemetry() {
-        // Initialize the string
-        String statusMessage = "";
+        // Only build the string if we actually have to
+        String currentStatus = String.format("In: %c  Hold: %c  Out: %c", in_color, hold_color, out_color);
 
-        // Add characters/strings using concatenation
-        statusMessage += " In: ";
-        statusMessage += this.in_color;
-        statusMessage += " Hold: ";
-        statusMessage += this.hold_color;
-        statusMessage += " Out: ";
-        statusMessage += this.out_color;
-
-        telemetry.addData("Ball Colors. ", statusMessage);
-//        telemetry.addLine("This is a secondary line of text.");
-//        telemetry.update();
+        if (!currentStatus.equals(lastStatus)) {
+            ballStatusItem.setValue(currentStatus); // Efficiently update the existing line
+            lastStatus = currentStatus;
+        }
     }
 
     public boolean anyBallReadyForLaunch() {

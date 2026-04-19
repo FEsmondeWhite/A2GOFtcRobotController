@@ -415,7 +415,7 @@ abstract public class ppAutoBase extends OpMode {
 //        telemetryM.debug("velocity", follower.getVelocity());
 //        telemetryM.update();
 
-        this.sorter.balls.detailedTelemetry();
+//        this.sorter.balls.detailedTelemetry();
 
         // Feedback to Driver Hub for debugging
         telemetry.addData("path state", currentState);

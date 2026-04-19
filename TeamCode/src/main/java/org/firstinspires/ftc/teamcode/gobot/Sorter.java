@@ -69,8 +69,12 @@ public class Sorter {
     }
 
     private boolean isAnyMagPressed() {
-        return mag7center.isPressed() || mag6center.isPressed() ||
-                mag4lead.isPressed() || mag5lag.isPressed();
+        // Only perform hardware reads if the state machine is looking for them
+        if (sorter_state == 3 || sorter_state == 11) {
+            return mag7center.isPressed() || mag6center.isPressed() ||
+                    mag4lead.isPressed() || mag5lag.isPressed();
+        }
+        return false;
     }
 
     public void update() {
@@ -83,10 +87,11 @@ public class Sorter {
             return;
         }
 
+        // 2. STATE MACHINE
         switch (sorter_state) {
             case 0: // IDLE (STABLE)
                 // We keep PWM enabled here so the servo doesn't "jump" when re-activated.
-                ball_sorter_arm.setPower(0);
+                // ball_sorter_arm.setPower(0); // Don't call setPower(0) every loop if it's already 0
                 break;
 
             case 1: // START BURST

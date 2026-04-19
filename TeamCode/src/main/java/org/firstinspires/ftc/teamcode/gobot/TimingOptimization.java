@@ -24,7 +24,7 @@ public class TimingOptimization {
         this.minHz = 500;
         this.maxHz = 0;
         this.lastHz = 0;
-        this.startingCountdown = 25; // ~ 0.5 seconds before timing begins to run.
+        this.startingCountdown = 45; // ~ 0.5 seconds before timing begins to run.
     }
 
     public void update() {

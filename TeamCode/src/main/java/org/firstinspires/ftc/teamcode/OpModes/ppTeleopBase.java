@@ -1,7 +1,5 @@
 package org.firstinspires.ftc.teamcode.OpModes;
 
-import com.bylazar.telemetry.PanelsTelemetry;
-import com.bylazar.telemetry.TelemetryManager;
 import com.pedropathing.follower.Follower;
 import com.pedropathing.geometry.BezierLine;
 import com.pedropathing.geometry.Pose;
@@ -10,7 +8,6 @@ import com.pedropathing.paths.Path;
 import com.pedropathing.paths.PathChain;
 import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
-import com.qualcomm.robotcore.hardware.DigitalChannel;
 import com.qualcomm.robotcore.hardware.Gamepad;
 import com.qualcomm.robotcore.hardware.LED;
 
@@ -22,47 +19,35 @@ import org.firstinspires.ftc.teamcode.gobot.PoseStorage;
 import org.firstinspires.ftc.teamcode.gobot.Sorter;
 import org.firstinspires.ftc.teamcode.gobot.TimingOptimization;
 import org.firstinspires.ftc.teamcode.pedroPathing.Constants;
-//import org.firstinspires.ftc.teamcode.gobot.StartingPose;
 
 import java.util.List;
 import java.util.function.Supplier;
 
-//@TeleOp()
 abstract public class ppTeleopBase extends OpMode {
     private Follower follower;
     private boolean automatedDrive;
-
-//    private int currentBall;
-
     private boolean lockdownMode = false;
-//    private Path lockdownPath;
     private Pose lockdownPose;
-    private final double HOLD_TOLERANCE_INCHES = 0.2; // originally 0.5
-    private final double HOLD_TOLERANCE_DEGREES = 1.0; // originally 2.0
-    private boolean robotCentric; // true means robot centric, false is field centric
+    private final double HOLD_TOLERANCE_INCHES = 0.2;
+    private final double HOLD_TOLERANCE_DEGREES = 1.0;
+    private boolean robotCentric;
+
     private Supplier<PathChain> pathChainFront;
     private Supplier<PathChain> pathChainRear;
     private Supplier<PathChain> pathChainPark;
     private Supplier<PathChain> pathChainHuman;
 
-//    private TelemetryManager telemetryM;
     private boolean slowMode = false;
-    private double slowModeMultiplier = 0.25; // Was too fast for accurate parking at 0.5
-    private double driveSpeedMax; //
+    private double slowModeMultiplier = 0.25;
+    private double driveSpeedMax;
     private double fullSpeed = 1.0;
     private double moderateSpeed = 0.7;
 
     private boolean autoFlywheelSpeed = true;
-
     private int AllianceColor;
-//    private int AllianceColor = 1; // Blue is 1
-//    private int AllianceColor = 2; // Red is 2
     private int StartPosition;
-//    private int StartPosition = 1; // Front is 1
-//    private int StartPosition = 2; // Back is 2
 
-    public Pose startingPose;  //See ExampleAuto to understand how to use this
-
+    public Pose startingPose;
     public Pose frontShootPose;
     public Pose rearShootPose;
     public Pose ParkPose;
@@ -70,10 +55,7 @@ abstract public class ppTeleopBase extends OpMode {
     public Pose GoalPose;
     public Pose ResetPose;
 
-
-    // Declare a LED object for the indicator LEDs
     LED redLED;
-
     private TimingOptimization timingSystem;
     List<LynxModule> allHubs;
 
@@ -83,7 +65,6 @@ abstract public class ppTeleopBase extends OpMode {
     private Launcher launcher;
     private EnPointe enpoint;
 
-    // Define a "Snapshot" at the start of your OpMode class
     Gamepad currentGamepad1;
     Gamepad previousGamepad1;
     Gamepad currentGamepad2;
@@ -93,57 +74,49 @@ abstract public class ppTeleopBase extends OpMode {
     double currentHeading;
     boolean followerBusy;
     private boolean lastRedLedState;
-//    private boolean lastGreenLedState;
     private boolean desiredRedLedState;
 
-    // Get pose and heading based on alliance color and start position (front/back)
     public ppTeleopBase(int AllianceColor, int StartPosition) {
-
-
         this.AllianceColor = AllianceColor;
         this.StartPosition = StartPosition;
-        if (AllianceColor == 1) {
+
+        // --- POSE INITIALIZATION ---
+
+        if (AllianceColor == 1) { // Blue
             if (StartPosition == 1) {
                 startingPose = new Pose(57.5, 9, 1.57079); // Math.toRadians(90)
             } else if (StartPosition == 2) {
                 startingPose = new Pose(29.5, 134, 4.71239);
             }
-        } else if (AllianceColor == 2) {
+            frontShootPose = new Pose(71,20,2.11185);
+            rearShootPose = new Pose(71,79, 2.40855);
+            ParkPose = new Pose(144-38.6,33.4, Math.toRadians(180));
+            HumanPose = new Pose(127.5,15.5, 4.71239);
+            GoalPose = new Pose(0, 144);
+            ResetPose = new Pose(134, 9, Math.toRadians(90));
+        } else { // Red. AllianceColor is 2
             if (StartPosition == 1) {
                 startingPose = new Pose(144 - 57.5, 9, 1.57079);
             } else if (StartPosition == 2) {
                 startingPose = new Pose(144 - 29.5, 134, 4.71239);
             }
+            frontShootPose = new Pose(144-71,20, 1.02974);
+            rearShootPose = new Pose(144-71,79, 0.73304);
+            ParkPose = new Pose(38.6,33.4, Math.toRadians(0));
+            HumanPose = new Pose(16.5,15.5, 1.57079);
+            GoalPose = new Pose(144, 144);
+            ResetPose = new Pose(9, 9, Math.toRadians(90));
         }
 
-        // If there is a stored pose (starting from PP auto) then
-        // Get the pose from storage
-        if(!( PoseStorage.currentPose==null) ) {
+        // If there is a stored pose (starting from PP auto) then get the pose from storage
+        if (PoseStorage.currentPose != null) {
             // This will load the pose if we have already run the robot.
             startingPose = PoseStorage.currentPose;
-        }
-
-        // Define the field poses for shooting and parking based on alliance color
-        if (AllianceColor == 1) {
-            frontShootPose = new Pose(71,20,2.11185); // Math.toRadians(121));
-            rearShootPose = new Pose(71,79, 2.40855); // Math.toRadians(138));
-            ParkPose = new Pose(144-38.6,33.4, Math.toRadians(180)); // Math.toRadians(90));
-            HumanPose = new Pose(127.5,15.5, 4.71239); // Math.toRadians(270));
-            GoalPose = new Pose(0, 144); // Blue goal
-            ResetPose = new Pose(134, 9, Math.toRadians(90));
-        } else if (AllianceColor == 2) {
-            frontShootPose = new Pose(144-71,20, 1.02974); // Math.toRadians(180-121));
-            rearShootPose = new Pose(144-71,79, 0.73304); // Math.toRadians(180-138));
-            ParkPose = new Pose(38.6,33.4, Math.toRadians(0)); // Math.toRadians(90));
-            HumanPose = new Pose(16.5,15.5, 1.57079); // Math.toRadians(90));
-            GoalPose = new Pose(144, 144); // Red goal
-            ResetPose = new Pose(9, 9, Math.toRadians(90));
         }
     }
 
     @Override
     public void init() {
-
         allHubs = hardwareMap.getAll(LynxModule.class);
         for (LynxModule hub : allHubs) {
             hub.setBulkCachingMode(LynxModule.BulkCachingMode.MANUAL);
@@ -156,409 +129,240 @@ abstract public class ppTeleopBase extends OpMode {
         previousGamepad1 = new Gamepad();
         currentGamepad2 = new Gamepad();
         previousGamepad2 = new Gamepad();
+
+        // These must be instantiated and have a value.
         currentGamepad1.copy(gamepad1);
-        previousGamepad1.copy(currentGamepad1);
         currentGamepad2.copy(gamepad2);
+        previousGamepad1.copy(currentGamepad1);
         previousGamepad2.copy(currentGamepad2);
 
-        // Initialize the LED from the hardware map
-        // The name "myLED" must match the name in your configuration file
         redLED = hardwareMap.get(LED.class, "lockdown_LED1");
         redLED.enable(false);
-
-//        // Set the LED as an output device
-//        greenLED.setMode(DigitalChannel.Mode.OUTPUT);
-//        redLED.setMode(DigitalChannel.Mode.OUTPUT);
-
         lastRedLedState = false;
-//        lastGreenLedState = false;
 
-        intake = new Intake();
-        intake.init(hardwareMap);
-        lifter = new Lifter();
-        lifter.init(hardwareMap);
-        sorter = new Sorter(hardwareMap, telemetry);
-        sorter.init(lifter);
-        launcher = new Launcher();
-        launcher.init(hardwareMap);
-        enpoint = new EnPointe();
-        enpoint.init(hardwareMap);
+        intake = new Intake(); intake.init(hardwareMap);
+        lifter = new Lifter(); lifter.init(hardwareMap);
+        sorter = new Sorter(hardwareMap, telemetry); sorter.init(lifter);
+        launcher = new Launcher(); launcher.init(hardwareMap);
+        enpoint = new EnPointe(); enpoint.init(hardwareMap);
 
+        robotCentric = true;
         automatedDrive = false;
 
-        int currentBall = 0; // Set the pattern position to ball 0
-
-        // true means robot centric, false is field centric
-        robotCentric = true;
-
-        //Drivetrain (PP)
-//        follower=org.firstinspires.ftc.teamcode.pedroPathing.Constants.createFollower(hardwareMap);
         follower = Constants.createFollower(hardwareMap);
-        driveSpeedMax = fullSpeed; // fullSpeed or moderateSpeed
+        driveSpeedMax = fullSpeed;
         follower.setMaxPower(driveSpeedMax);
-
         follower.setStartingPose(startingPose);
         follower.update();
-//        telemetryM = PanelsTelemetry.INSTANCE.getTelemetry();
 
-        this.pathChainRear = () -> follower.pathBuilder() //Lazy Curve Generation
+        // --- PATH SUPPLIERS ---
+        this.pathChainRear = () -> follower.pathBuilder()
                 .addPath(new Path(new BezierLine(currentPose, rearShootPose)))
                 .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(() -> currentHeading, rearShootPose.getHeading(), 0.8))
                 .build();
 
-        this.pathChainFront = () -> follower.pathBuilder() //Lazy Curve Generation
+        this.pathChainFront = () -> follower.pathBuilder()
                 .addPath(new Path(new BezierLine(currentPose, frontShootPose)))
                 .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(() -> currentHeading, frontShootPose.getHeading(), 0.8))
                 .build();
 
-        this.pathChainPark = () -> follower.pathBuilder() //Lazy Curve Generation
+        this.pathChainPark = () -> follower.pathBuilder()
                 .addPath(new Path(new BezierLine(currentPose, ParkPose)))
                 .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(() -> currentHeading, ParkPose.getHeading(), 0.8))
                 .build();
 
-        this.pathChainHuman = () -> follower.pathBuilder() //Lazy Curve Generation
+        this.pathChainHuman = () -> follower.pathBuilder()
                 .addPath(new Path(new BezierLine(currentPose, HumanPose)))
                 .setHeadingInterpolation(HeadingInterpolator.linearFromPoint(() -> currentHeading, HumanPose.getHeading(), 0.8))
                 .build();
     }
 
-
     @Override
     public void start() {
-        //The parameter controls whether the Follower should use break mode on the motors (using it is recommended).
-        //In order to use float mode, add .useBrakeModeInTeleOp(true); to your Drivetrain Constants in Constant.java (for Mecanum)
-        //If you don't pass anything in, it uses the default (false)
         follower.startTeleopDrive();
     }
 
     @Override
     public void loop() {
-        // READ SECTION (Hardware Snapshots):
+        // --- READ SECTION ---
+        for (LynxModule hub : allHubs) { hub.clearBulkCache(); }
 
-        // IMPORTANT: Clear caches for BOTH hubs at the very start
-        for (LynxModule hub : allHubs) {
-            hub.clearBulkCache();
-        }
-
-        follower.update(); //Call this once per loop
-        // 3. Cache the values for the rest of the loop
+        follower.update();
         currentPose = follower.getPose();
         currentHeading = follower.getHeading();
         followerBusy = follower.isBusy();
 
-        // 1. Save the previous state to detect new presses
         previousGamepad1.copy(currentGamepad1);
         previousGamepad2.copy(currentGamepad2);
-
-// 2. Take a "Snapshot" of the current state
         currentGamepad1.copy(gamepad1);
         currentGamepad2.copy(gamepad2);
 
-// //        example use of gamepads:
-//        // 3. Use the SNAPSHOT for all logic
-//        if (currentGamepad1.a && !previousGamepad1.a) {
-//            // This only runs ONCE when 'A' is pressed
-//            sorterStateMachine.triggerNextSlot();
-//        }
-//
-//// 4. Drive logic using the snapshot
-//        double drivePower = -currentGamepad1.left_stick_y;
-
-        // THINK Section (Logic & State Machines):
-
         timingSystem.update();
-        if (timingSystem.do_telemetry()) {
-            telemetry.addData("Flywheel speed (RPS) ", launcher.actual_RPS);
+
+        // --- THINK SECTION (Logic & State Machines) ---
+
+        // 1. MANUALLY DRIVEN OVERRIDE (Applies to all automation)
+        boolean isManualInput = Math.abs(currentGamepad1.left_stick_x) > 0.2 ||
+                Math.abs(currentGamepad1.left_stick_y) > 0.2 ||
+                Math.abs(currentGamepad1.right_stick_x) > 0.2;
+
+        if (isManualInput && (automatedDrive || lockdownMode)) {
+            automatedDrive = false;
+            lockdownMode = false;
+            follower.breakFollowing();
+            follower.startTeleopDrive();
         }
 
-        // Intake
-        if (currentGamepad1.a) {
-            intake.setIntake(5);
-        } else if (currentGamepad1.b) {
-            intake.setIntake(-2);
-        } else {
-            intake.setIntake(0);
-        }
+        // 2. CONSOLIDATED AUTOMATION LOGIC
+        if (!enpoint.isBusy()) {
+            if (lockdownMode) {
+                if (!enpoint.isBusy()) {
+                    double distanceError = currentPose.distanceFrom(lockdownPose);
+                    double headingError = Math.abs(currentPose.getHeading() - lockdownPose.getHeading());
 
-        // Sorter
-        if (!lifter.isBusy()) {
-            if (currentGamepad2.rightBumperWasPressed()) {
-                sorter.start(1);
-            }
-            if (currentGamepad2.left_bumper) { // Or whichever trigger you prefer
-                sorter.startUnbind();
-            }
-        }
-
-        // Lifter
-        if (!sorter.isBusy()) {
-            if (currentGamepad2.right_trigger > 0.5) {
-                lifter.start();
-            }
-        }
-
-//        if (currentGamepad2.left_trigger > 0.5) {
-//            lifter.stop();
-//        }
-
-        // Flywheel
-        if (currentGamepad2.dpadUpWasReleased())
-        {
-            launcher.setNominalRPS(launcher.getNominalRPS()+1);
-        }
-        if (currentGamepad2.dpadDownWasReleased())
-        {
-            launcher.setNominalRPS(launcher.getNominalRPS()-1);
-        }
-        if (currentGamepad2.dpadRightWasReleased())
-        {
-            launcher.setNominalRPS(57);
-        }
-        if (currentGamepad2.dpadLeftWasReleased())
-        {
-            launcher.setNominalRPS(52.5);
-        }
-
-        if (currentGamepad2.xWasReleased()) {
-            autoFlywheelSpeed = !autoFlywheelSpeed;
-        }
-
-        if (autoFlywheelSpeed == false)
-        {
-            launcher.setNominalRPS(
-                    launcher.getSpeedNearestToDistance(
-                            launcher.getDistance(currentPose, GoalPose)
-                    )
-            );
-        }
-
-        if (currentGamepad2.circleWasReleased()) {
-            follower.setPose(ResetPose);
-        }
-
-//        if (timingSystem.do_telemetry()) {
-//            // static public flywheel PIDF allows it to be changed in panels
-//            telemetryM.addData("Flywheel setpoint", launcher.getNominalRPS());
-//            telemetryM.addData("Flywheel actual", launcher.actual_RPS);
-//            }
-
-        if (currentGamepad2.x) {
-            launcher.enableMotor();
-            if (timingSystem.do_telemetry()) {
-                telemetry.addData("Flywheel setpoint: ", launcher.getNominalRPS());
-                telemetry.addData("Flywheel actual: ", launcher.actual_RPS);
-            }
-        } else {
-            launcher.disableMotor();
-        }
-
-        //Automated PathFollowing to the front launch position
-        if (currentGamepad1.dpadDownWasPressed()) {
-            follower.followPath(this.pathChainFront.get(), true);
-            automatedDrive = true;
-        }
-
-        //Automated PathFollowing to the rear launch position
-        if (currentGamepad1.dpadUpWasPressed()) {
-            follower.followPath(this.pathChainRear.get(), true);
-            automatedDrive = true;
-        }
-
-        //Automated PathFollowing to the end game park position
-        if (currentGamepad1.dpadLeftWasPressed()) {
-            follower.followPath(this.pathChainPark.get(), true);
-            automatedDrive = true;
-        }
-
-        //Automated PathFollowing to the human player artifact loading position
-        if (currentGamepad1.dpadRightWasPressed()) {
-            follower.followPath(this.pathChainHuman.get(), true);
-            automatedDrive = true;
-        }
-
-
-        //Automated PathFollowing to the human player artifact loading position
-        if (currentGamepad2.yWasReleased()) {
-            if (enpoint.isBusy()) {
-                enpoint.stop();
+                    if ((distanceError > HOLD_TOLERANCE_INCHES || headingError > Math.toRadians(HOLD_TOLERANCE_DEGREES)) && !followerBusy) {
+                        // Fix: Create path, set heading, THEN follow
+                        Path lockdownPath = new Path(new BezierLine(currentPose, lockdownPose));
+                        lockdownPath.setConstantHeadingInterpolation(lockdownPose.getHeading());
+                        follower.followPath(lockdownPath, true);
+                    } else if (distanceError < (HOLD_TOLERANCE_INCHES * 0.8) && followerBusy) {
+                        follower.breakFollowing();
+                    }
+                }
+            } else if (automatedDrive) {
+                if (!followerBusy || currentGamepad1.xWasPressed()) {
+                    automatedDrive = false;
+                    follower.startTeleopDrive();
+                }
             } else {
-                enpoint.start();
+            // 3. MANUAL DRIVE SECTION (Only if not automated)
+                if (currentGamepad1.optionsWasReleased()) { // Allow toggling robotCentric
+                    robotCentric = !robotCentric;
+                }
+
+                double x = robotCentric ? -currentGamepad1.left_stick_y : currentGamepad1.left_stick_x;
+                double y = robotCentric ? -currentGamepad1.left_stick_x : -currentGamepad1.left_stick_y;
+                double rot = -currentGamepad1.right_stick_x;
+                double multiplier = slowMode ? slowModeMultiplier : 1.0;
+
+                follower.setTeleOpDrive(x * multiplier, y * multiplier, rot * multiplier, robotCentric);
             }
         }
 
-        // Start automated lockdown mode to hold position
+        // --- SUBSYSTEMS & BUTTON TRIGGERS ---
+
+        // Path Triggers
+        if (currentGamepad1.dpadDownWasPressed()) { follower.followPath(pathChainFront.get(), true); automatedDrive = true; }
+        if (currentGamepad1.dpadUpWasPressed()) { follower.followPath(pathChainRear.get(), true); automatedDrive = true; }
+        if (currentGamepad1.dpadLeftWasPressed()) { follower.followPath(pathChainPark.get(), true); automatedDrive = true; }
+        if (currentGamepad1.dpadRightWasPressed()) { follower.followPath(pathChainHuman.get(), true); automatedDrive = true; }
+        // Toggle Lockdown Mode
         if (currentGamepad1.yWasReleased()) {
-            // ENGAGE HOLD: Capture current pose and lock target
-            lockdownPose = currentPose;
-            automatedDrive = true;
-            lockdownMode = true;
-
-//            BezierPoint holdPoint = new BezierPoint(lockdownPose);
-//            lockdownPath = new Path(new BezierLine(lockdownPose, lockdownPose));
-//
-//            // 3. Set the heading to remain constant (the current heading)
-//            lockdownPath.setConstantHeadingInterpolation(lockdownPose.getHeading());
-//
-//            // 4. Instruct Follower to follow this path and HOLD the end
-//            follower.followPath(lockdownPath, true);
-        }
-
-        // Handle Manual Driving
-        if (enpoint.isBusy()) {
-            // If enpointe is activated, we don't want to run teleop or auto movement.
-        } else if (!automatedDrive) {
-            //Make the last parameter false for field-centric
-            //In case the drivers want to use a "slowMode" you can scale the vectors
-
-
-            if (currentGamepad1.optionsWasReleased()) {
-                robotCentric = !(robotCentric);
-            }
-            if (!slowMode) {
-                if (!(robotCentric)) {
-                    //This is the normal version to use in the TeleOp
-                    follower.setTeleOpDrive(
-                            currentGamepad1.left_stick_x,
-                            -currentGamepad1.left_stick_y,
-                            -currentGamepad1.right_stick_x,
-                            robotCentric // Field Centric
-                    );
-                } else {
-                    //This is the normal version to use in the TeleOp
-                    follower.setTeleOpDrive(
-                            -currentGamepad1.left_stick_y,
-                            -currentGamepad1.left_stick_x,
-                            -currentGamepad1.right_stick_x,
-                            robotCentric // Robot Centric
-                    );
-                }
-            }
-                //This is how it looks with slowMode on
-            else {
-                if (!(robotCentric)) {
-                    //This is the slow version to use in the TeleOp
-                    follower.setTeleOpDrive(
-                            currentGamepad1.left_stick_x * slowModeMultiplier,
-                            -currentGamepad1.left_stick_y * slowModeMultiplier,
-                            -currentGamepad1.right_stick_x * slowModeMultiplier,
-                            robotCentric // Field Centric
-                    );
-                } else {
-                    //This is the slow version to use in the TeleOp
-                    follower.setTeleOpDrive(
-                            -currentGamepad1.left_stick_y * slowModeMultiplier,
-                            -currentGamepad1.left_stick_x * slowModeMultiplier,
-                            -currentGamepad1.right_stick_x * slowModeMultiplier,
-                            robotCentric // Robot Centric
-                    );
-                }
-            }
-        }
-
-        // --- REFINED LOCKDOWN LOGIC ---
-        if (lockdownMode && !enpoint.isBusy()) {
-
-            // 1. ESCAPE CONDITION: If driver touches the stick, kill lockdown
-            if (Math.abs(currentGamepad1.left_stick_x) > 0.20 || Math.abs(currentGamepad1.left_stick_y) > 0.20) {
+            if (lockdownMode) {
+                // TURN OFF: If already in lockdown, cancel it
                 lockdownMode = false;
                 automatedDrive = false;
                 follower.breakFollowing();
                 follower.startTeleopDrive();
-            }
-            else {
-                // 2. ERROR CALCULATION
-                double distanceError = currentPose.distanceFrom(lockdownPose);
-                double headingError = Math.abs(currentPose.getHeading() - lockdownPose.getHeading());
-
-                // 3. FIGHT BACK: Only trigger a new path if we aren't already moving
-                if ((distanceError > HOLD_TOLERANCE_INCHES || headingError > Math.toRadians(HOLD_TOLERANCE_DEGREES))
-                        && !followerBusy) {
-
-                    Path lockdownPath = new Path(new BezierLine(currentPose, lockdownPose));
-                    lockdownPath.setConstantHeadingInterpolation(lockdownPose.getHeading());
-                    follower.followPath(lockdownPath, true);
-
-                    if (timingSystem.do_telemetry()) {
-                        telemetry.addData("Status", "HOLDING (Correcting...)");
-                    }
-                }
-                // 4. SETTLE: If we are close enough and still moving, stop.
-                else if (distanceError < (HOLD_TOLERANCE_INCHES * 0.8) && followerBusy) {
-                    follower.breakFollowing();
-                }
-            }
-
-            if (timingSystem.do_telemetry() && lockdownMode) {
-                telemetry.addData("Err Dist", "%.2f in", currentPose.distanceFrom(lockdownPose));
-            }
-        }
-
-        //Stop automated following if the follower is done or we want to cancel.
-        if (automatedDrive &&
-//                (Math.abs(gamepad1.left_stick_x)>0.5) ||
-//                (Math.abs(gamepad1.left_stick_y)>0.5) ||
-                (currentGamepad1.xWasPressed() ||
-                        (!follower.isBusy() && !lockdownMode))) {
-            follower.startTeleopDrive();
-            automatedDrive = false;
-        }
-
-        //Moderate speed mode
-        if (currentGamepad1.leftBumperWasPressed()) {
-            if (driveSpeedMax == fullSpeed) {
-                // Toggle to moderateSpeed
-                driveSpeedMax = fullSpeed; // fullSpeed or moderateSpeed
-                follower.setMaxPower(driveSpeedMax);
             } else {
-                // Toggle back to fullSpeed
-                driveSpeedMax = moderateSpeed; // fullSpeed or moderateSpeed
-                follower.setMaxPower(driveSpeedMax);
+                // TURN ON: Capture pose and engage
+                lockdownPose = currentPose;
+                lockdownMode = true;
+                automatedDrive = true;
+            }
+        }
+        // Sorter/Intake/Launcher
+        if (currentGamepad1.a) intake.setIntake(5); else if (currentGamepad1.b) intake.setIntake(-2); else intake.setIntake(0);
+
+        if (!lifter.isBusy()) {
+            if (currentGamepad2.rightBumperWasPressed()) sorter.start(1);
+            if (currentGamepad2.left_bumper) sorter.startUnbind();
+        }
+        if (!sorter.isBusy() && currentGamepad2.right_trigger > 0.5) lifter.start();
+
+        // 2. Pose Reset (Moved to Share)
+        if (currentGamepad2.shareWasReleased()) {
+            follower.setPose(ResetPose);
+        }
+
+        if (currentGamepad2.circleWasReleased()) {
+            autoFlywheelSpeed = !autoFlywheelSpeed;
+        }
+
+        // Flywheel
+        if (!autoFlywheelSpeed) {
+            if (currentGamepad2.dpad_up && !previousGamepad2.dpad_up)
+            {
+                launcher.setNominalRPS(launcher.getNominalRPS()+0.5);
+            }
+            if (currentGamepad2.dpad_down && !previousGamepad2.dpad_down)
+            {
+                launcher.setNominalRPS(launcher.getNominalRPS()-0.5);
+            }
+            if (currentGamepad2.dpad_right)
+            {
+                launcher.setNominalRPS(57);
+            }
+            if (currentGamepad2.dpad_left)
+            {
+                launcher.setNominalRPS(52.5);
+            }
+        } else {
+            // 2. Automatic Distance Calculation
+            if (autoFlywheelSpeed) {
+//                if (!autoFlywheelSpeed) launcher.setNominalRPS(launcher.getSpeedNearestToDistance(launcher.getDistance(currentPose, GoalPose)));
+                double dist = launcher.getDistance(currentPose, GoalPose);
+                double targetSpeed = launcher.getSpeedNearestToDistance(dist);
+                if (targetSpeed != -1) {
+                    launcher.setNominalRPS(targetSpeed);
+                }
             }
         }
 
-
-        //Slow Mode
-        if (currentGamepad1.right_bumper) {
-            slowMode = true;
-        } else {
-            slowMode = false;
+        if (currentGamepad2.xWasPressed()) {
+            launcher.enableMotor();
+        } else if (currentGamepad2.xWasReleased()) {
+            launcher.disableMotor();
         }
 
-//        greenLED = hardwareMap.get(DigitalChannel.class, "lockdown_LED1");
-//        redLED = hardwareMap.get(DigitalChannel.class, "lockdown_LED2");
-//        lastRedLedState = false;
-//        lastGreenLedState = false;
+        if (currentGamepad2.yWasReleased()) { if (enpoint.isBusy()) enpoint.stop(); else enpoint.start(); }
 
-        // Light the LED when automated drive mode is enabled
+        // Speed Toggles
+        if (currentGamepad1.leftBumperWasPressed()) {
+            driveSpeedMax = (driveSpeedMax == fullSpeed) ? moderateSpeed : fullSpeed;
+            follower.setMaxPower(driveSpeedMax);
+        }
+        slowMode = currentGamepad1.right_bumper;
+
+        // --- LED FEEDBACK ---
         if (lockdownMode) {
-            // Blink: Desired state flips between true/false based on clock
             desiredRedLedState = (System.currentTimeMillis() % 200) < 100;
         } else {
-            // Solid: Desired state matches automatedDrive
             desiredRedLedState = automatedDrive;
         }
 
         if (desiredRedLedState != lastRedLedState) {
             redLED.enable(desiredRedLedState);
-            lastRedLedState = desiredRedLedState; // Update the cache
+            lastRedLedState = desiredRedLedState;
         }
 
-        // ACT Section (Motor Commands):
-        // Note PedroPathing motor control is already complete.
-
+        // --- ACT SECTION ---
         sorter.update();
         lifter.update();
         launcher.update();
         enpoint.update();
 
-        if (timingSystem.do_telemetry()) {
-//            telemetryM.debug("position", currentPose);
-//            telemetryM.debug("velocity", follower.getVelocity());
-//            telemetryM.debug("automatedDrive", automatedDrive);
-//            telemetryM.update();
+        // --- TELEMETRY ---
+        if (timingSystem.do_telemetry()) {// Display Setpoint (Active) and Actual (Measured)
+            telemetry.addData("Launcher Mode", autoFlywheelSpeed ? "AUTO" : "MANUAL");
+            telemetry.addData("Launcher", "Setpoint: %.1f | Actual: %.1f RPS",
+                    launcher.getActiveSetpointRPS(),
+                    launcher.actual_RPS);
 
-//            sorter.addTelemetry();
-            this.sorter.balls.detailedTelemetry();
+            // If you want to see the stored "Nominal" even when off
+            telemetry.addData("Launcher Nominal", "%.1f RPS", launcher.getNominalRPS());
+
+//            this.sorter.balls.detailedTelemetry();
             this.sorter.balls.telemetry();
             telemetry.update();
         }
