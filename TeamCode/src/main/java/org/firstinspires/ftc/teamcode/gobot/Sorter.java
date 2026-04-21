@@ -48,7 +48,7 @@ public class Sorter {
         balls.init();
         balls.updateColors();
 
-        sorter_state = 10;
+        sorter_state = 0;
     }
 
     public void start(int direction) {

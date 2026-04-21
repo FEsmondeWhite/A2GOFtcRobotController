@@ -71,6 +71,16 @@ abstract public class ppAutoBase extends OpMode {
 
     private final ArrayList<PathChain> pathA = new ArrayList<>();
 
+    private int sortAttemptCount = 0;
+    private int consecutiveLaunchCount = 0;
+    private ElapsedTime stateTimer = new ElapsedTime();
+    private ElapsedTime matchTimer = new ElapsedTime();
+    // Logic breakout and history
+    private int consecutiveMatchCount = 0;
+    private int sortCycleCount = 0;
+    private int launchAttemptCount = 0;
+    private char lastSeenOutColor = 'N';
+
     enum TaskState {
         TASK_IDLE,      //Prior to start
         TASK_LIFTING,   //Lift/launch
@@ -111,8 +121,8 @@ abstract public class ppAutoBase extends OpMode {
 
     private Pose shootPose;
     double shootSpeedRPS;
-    double rearSpeedRPS = 58.5;
-    double frontSpeedRPS = 54;
+    double rearSpeedRPS = 57;
+    double frontSpeedRPS = 52.5;
     private Pose frontShootPose;
     private Pose rearShootPose;
     private Pose endPose;
@@ -377,6 +387,7 @@ abstract public class ppAutoBase extends OpMode {
 
         timingSystem = new TimingOptimization(telemetry);
         timingSystem.init();
+        matchTimer = new ElapsedTime(); // Initialize it here
 
         redLED = hardwareMap.get(LED.class, "lockdown_LED1");
         redLED.enable(false);
@@ -415,6 +426,7 @@ abstract public class ppAutoBase extends OpMode {
 
     @Override
     public void start() {
+        matchTimer.reset(); // Start the 30s clock
         //The parameter controls whether the Follower should use break mode on the motors (using it is recommended).
         //In order to use float mode, add .useBrakeModeInTeleOp(true); to your Drivetrain Constants in Constant.java (for Mecanum)
         //If you don't pass anything in, it uses the default (false)
@@ -464,6 +476,17 @@ abstract public class ppAutoBase extends OpMode {
     }
 
     public void updatePath() {
+        // --- GLOBAL EMERGENCY PARK ---
+        // If we hit 28 seconds, abort everything and go to TRAJ_7 (Park)
+        if (matchTimer.seconds() >= 28.0 && currentState != State.STOP && currentState != State.TRAJ_7) {
+            launcher.disableMotor();
+            intake.setIntake(0);
+            follower.setMaxPower(1.0);
+            follower.followPath(pathA.get(7), true); // pathA.get(7) is endPose
+            currentState = State.TRAJ_7;
+            return;
+        }
+
         // --- LED State Management (Bus-Safe) ---
         // Red LED indicates the autonomous program is actively processing a trajectory or task
         desiredRedLedState = (currentState != State.IDLE && currentState != State.STOP);
@@ -480,6 +503,7 @@ abstract public class ppAutoBase extends OpMode {
             case TRAJ_0:
                 // Use cached followerBusy to avoid extra method overhead
                 if (!followerBusy) {
+                    sorter.start(1);
                     launcher.setNominalRPS(shootSpeedRPS);
                     launcher.enableMotor();
                     follower.followPath(pathA.get(0), true);
@@ -490,21 +514,39 @@ abstract public class ppAutoBase extends OpMode {
 
             case SCAN:
                 if (!followerBusy) {
+                    // Initialize the scanning task timer and state
                     if (taskState == TaskState.TASK_IDLE) {
                         taskTimer.reset();
                         taskState = TaskState.TASK_SCANNING;
                     }
 
+                    // Poll the vision system for the pattern
                     patternID = vision.getDetectedPatternID();
-                    // If we find it, or time out after 1 second
+
+                    // Exit condition: Pattern found OR 800ms timeout reached
                     if (patternID != 0 || taskTimer.milliseconds() > 1000) {
                         if (patternID == 0) {
+                            // Default fallback pattern if vision fails
                             patternID = 22;
                             colorPattern = Arrays.asList('P', 'G', 'P');
                         } else {
+                            // Retrieve the actual colors based on the detected AprilTag
                             colorPattern = vision.getArtifactColorPattern();
                         }
+
+                        // --- 2. The Pattern Index Reset & Sorter Sync ---
+                        // Inject the new pattern into our filtered ball tracker
                         this.sorter.balls.setPatternList(colorPattern);
+
+                        // CRITICAL: Ensure we start looking for the first ball (Index 0)
+                        this.sorter.balls.resetPatternIndex();
+
+                        // Pre-emptively set the launcher speed for the first shot
+                        // This gives the PID more time to stabilize during TRAJ_1 travel
+                        launcher.setNominalRPS(shootSpeedRPS);
+                        launcher.enableMotor();
+
+                        // Transition to the next trajectory
                         currentState = State.TRAJ_1;
                         taskState = TaskState.TASK_IDLE;
                     }
@@ -518,45 +560,69 @@ abstract public class ppAutoBase extends OpMode {
                     currentState = State.SHOOT_A;
                 }
                 break;
-
+                
             case SHOOT_A:
             case SHOOT_B:
                 if (!followerBusy) {
-                    this.sorter.balls.updateColors();
+                    char currentOut = this.sorter.balls.getColorList().get(2);
+
+                    if (currentOut == lastSeenOutColor) {
+                        consecutiveMatchCount++;
+                    } else {
+                        consecutiveMatchCount = 0;
+                        lastSeenOutColor = currentOut;
+                    }
 
                     switch (taskState) {
                         case TASK_IDLE:
-                            if (this.sorter.balls.targetMatchForLaunch()) {
-                                if (!sorter.isBusy() && launcher.isReady()) {
+                            // 1. Logic for Matching Ball
+                            if (this.sorter.balls.targetMatchForLaunch() && consecutiveMatchCount >= 3) {
+                                if (launcher.isReady() && !sorter.isBusy()) {
                                     lifter.start();
+                                    launchAttemptCount++;
                                     taskState = TaskState.TASK_LIFTING;
+                                    stateTimer.reset(); // Use this to time the lift duration
                                 }
-                            } else if (this.sorter.balls.anyBallAvailable()) {
-                                // If target color isn't ready, but balls exist, sort.
-                                if (!lifter.isBusy() && !sorter.isBusy()) {
-                                    sorter.start(1);
-                                    taskState = TaskState.TASK_SORTING;
+                            }
+                            // 2. Logic for Sorting (Target is not at Out position)
+                            else if (this.sorter.balls.anyBallAvailable()) {
+                                if (!sorter.isBusy() && !lifter.isBusy()) {
+                                    if (sortCycleCount >= 6) {
+                                        moveToNextTrajectory();
+                                    } else {
+                                        sorter.start(1);
+                                        sortCycleCount++;
+                                        taskState = TaskState.TASK_SORTING;
+                                    }
                                 }
-                            } else {
-                                // No balls left in sorter: Transition out
-                                taskState = TaskState.TASK_IDLE;
-                                launcher.disableMotor();
-                                follower.setMaxPower(1.0);
-                                if (currentState == State.SHOOT_A) {
-                                    intake.setIntake(5); // Start intake rollers early here!
-                                    currentState = State.TRAJ_2;
-                                } else {
-                                    currentState = State.TRAJ_7;
-                                }
+                            }
+                            // 3. Logic for Empty Robot (Wait for sensor stability)
+                            else if (stateTimer.milliseconds() > 600) {
+                                moveToNextTrajectory();
                             }
                             break;
 
                         case TASK_LIFTING:
-                            if (!lifter.isBusy()) taskState = TaskState.TASK_IDLE;
+                            // Wait for the mechanical lift to finish (usually 300-500ms)
+                            if (!lifter.isBusy() && stateTimer.milliseconds() > 400) {
+                                // MANDATORY INCREMENT: We physically launched, so we
+                                // must move to the next ball in the pattern regardless of sensor.
+                                this.sorter.balls.incrementPatternIndex();
+
+                                launchAttemptCount = 0;
+                                sortCycleCount = 0;
+                                consecutiveMatchCount = 0; // Reset debounce for the next ball
+
+                                taskState = TaskState.TASK_IDLE;
+                                stateTimer.reset(); // Reset for the empty-check timer
+                            }
                             break;
 
                         case TASK_SORTING:
-                            if (!sorter.isBusy()) taskState = TaskState.TASK_IDLE;
+                            if (!sorter.isBusy()) {
+                                taskState = TaskState.TASK_IDLE;
+                                stateTimer.reset();
+                            }
                             break;
                     }
                 }
@@ -626,6 +692,34 @@ abstract public class ppAutoBase extends OpMode {
                 intake.setIntake(0);
                 // Program Finished
                 break;
+        }
+    }
+    // Helper method to keep the state machine clean
+    private void exitShooting() {
+        taskState = TaskState.TASK_IDLE;
+        launcher.disableMotor();
+        follower.setMaxPower(1.0);
+        sortAttemptCount = 0;
+        consecutiveLaunchCount = 0;
+        if (currentState == State.SHOOT_A) {
+            intake.setIntake(5);
+            currentState = State.TRAJ_2;
+        } else {
+            currentState = State.TRAJ_7;
+        }
+    }
+    private void moveToNextTrajectory() {
+        taskState = TaskState.TASK_IDLE;
+        launcher.disableMotor();
+        follower.setMaxPower(1.0);
+        sortCycleCount = 0;
+        launchAttemptCount = 0;
+
+        if (currentState == State.SHOOT_A) {
+            intake.setIntake(5);
+            currentState = State.TRAJ_2;
+        } else {
+            currentState = State.TRAJ_7;
         }
     }
 }

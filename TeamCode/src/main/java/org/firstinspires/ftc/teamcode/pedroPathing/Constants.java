@@ -2,6 +2,7 @@ package org.firstinspires.ftc.teamcode.pedroPathing;
 
 import com.pedropathing.control.FilteredPIDFCoefficients;
 import com.pedropathing.control.PIDFCoefficients;
+import com.pedropathing.control.PredictiveBrakingCoefficients;
 import com.pedropathing.follower.Follower;
 import com.pedropathing.follower.FollowerConstants;
 import com.pedropathing.ftc.FollowerBuilder;
@@ -19,9 +20,10 @@ public class Constants {
             .mass(14.33) // 31.6 lbs -> 14.33 up from 13.245
             .forwardZeroPowerAcceleration(-33.412)
             .lateralZeroPowerAcceleration(-73.688)
-            .translationalPIDFCoefficients(new PIDFCoefficients(0.08, 0, 0.003, 0.03))
+//            .translationalPIDFCoefficients(new PIDFCoefficients(0.08, 0, 0.003, 0.03))
             .headingPIDFCoefficients(new PIDFCoefficients(1.2, 0, 0.02, 0.03))
-            .drivePIDFCoefficients(new FilteredPIDFCoefficients(0.025,0.0,0.00001,0.6,0.02));
+            .predictiveBrakingCoefficients(new PredictiveBrakingCoefficients(0.12, 0.063, .001888));
+//            .drivePIDFCoefficients(new FilteredPIDFCoefficients(0.025,0.0,0.00001,0.6,0.02));
 // robot mass is 29.2 lbs, converted to kg is 13.245
 
     public static MecanumConstants driveConstants = new MecanumConstants()

@@ -165,4 +165,12 @@ public class BallColors {
             return false;
         }
     }
+    // Inside BallColors.java
+    public void incrementPatternIndex() {
+        this.patternIndex++;
+    }
+
+    public void resetPatternIndex() {
+        this.patternIndex = 0;
+    }
 }

@@ -90,7 +90,7 @@ abstract public class ppTeleopBase extends OpMode {
             }
             frontShootPose = new Pose(71,20,2.11185);
             rearShootPose = new Pose(71,79, 2.40855);
-            ParkPose = new Pose(144-38.6,33.4, Math.toRadians(180));
+            ParkPose = new Pose(110,38, Math.toRadians(135)); // parking pose for blue. Facing toward goal, with robot on team side.
             HumanPose = new Pose(127.5,15.5, 4.71239);
             GoalPose = new Pose(0, 144);
             ResetPose = new Pose(134, 9, Math.toRadians(90));
@@ -102,7 +102,7 @@ abstract public class ppTeleopBase extends OpMode {
             }
             frontShootPose = new Pose(144-71,20, 1.02974);
             rearShootPose = new Pose(144-71,79, 0.73304);
-            ParkPose = new Pose(38.6,33.4, Math.toRadians(0));
+            ParkPose = new Pose(43,38, Math.toRadians(-45)); // parking pose for blue. Facing toward goal, with robot on team side.
             HumanPose = new Pose(16.5,15.5, 1.57079);
             GoalPose = new Pose(144, 144);
             ResetPose = new Pose(9, 9, Math.toRadians(90));

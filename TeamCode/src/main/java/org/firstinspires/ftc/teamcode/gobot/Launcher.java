@@ -24,7 +24,7 @@ public class Launcher {
     private double nominalRPS = 60;      // The desired speed (setpoint)
     private double activeSetpointRPS = 0; // The current command (nominal or 0)
     public double actual_RPS = 0;        // The measured speed
-    public static final double threshold = 2;
+    public static final double threshold = 1;
 
     private long lastReadTime = 0;
     private final long READ_INTERVAL_MS = 250; // Throttle hardware read to 4Hz
