@@ -88,7 +88,7 @@ public class FastColorSensor extends I2cDeviceSynchDevice<I2cDeviceSynch> {
             return 'P';
         }
 
-        return 'U'; // 'U' for Unknown/Uncertain
+        return 'P'; // 'P' for Unknown/Uncertain, let's just assume it's purple.
     }
 
     @Override

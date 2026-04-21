@@ -72,10 +72,10 @@ public class Launcher {
         data = new ArrayList<>();
         data.add(new DataPoint(66.0, 55.0));
         data.add(new DataPoint(72.0, 53.0));
-        data.add(new DataPoint(78.0, 53.0));
-        data.add(new DataPoint(84.0, 53.0));
-        data.add(new DataPoint(90.0, 52.0));
-        data.add(new DataPoint(100.0, 52.5));
+        data.add(new DataPoint(78.0, 55.0));
+        data.add(new DataPoint(84.0, 55.0));
+        data.add(new DataPoint(90.0, 56.0));
+        data.add(new DataPoint(100.0, 56));
         data.add(new DataPoint(141.0, 57.0));
 
 //Distance	Flywheel Speed

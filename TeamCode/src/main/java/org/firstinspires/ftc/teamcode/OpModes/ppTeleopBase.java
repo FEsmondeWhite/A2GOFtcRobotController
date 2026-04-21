@@ -102,7 +102,7 @@ abstract public class ppTeleopBase extends OpMode {
             }
             frontShootPose = new Pose(144-71,20, 1.02974);
             rearShootPose = new Pose(144-71,79, 0.73304);
-            ParkPose = new Pose(43,38, Math.toRadians(-45)); // parking pose for blue. Facing toward goal, with robot on team side.
+            ParkPose = new Pose(34.8,29, Math.toRadians(-45)); // parking pose for blue. Facing toward goal, with robot on team side.
             HumanPose = new Pose(16.5,15.5, 1.57079);
             GoalPose = new Pose(144, 144);
             ResetPose = new Pose(9, 9, Math.toRadians(90));
@@ -146,9 +146,9 @@ abstract public class ppTeleopBase extends OpMode {
         launcher = new Launcher(); launcher.init(hardwareMap);
         enpoint = new EnPointe(); enpoint.init(hardwareMap);
         if (StartPosition == 1) {
-            launcher.setNominalRPS(57);
+            launcher.setNominalRPS(56);
         } else if (StartPosition == 2) {
-            launcher.setNominalRPS(52.5);
+            launcher.setNominalRPS(56);
         } // Front vs Back
 
         robotCentric = true;
@@ -291,7 +291,7 @@ abstract public class ppTeleopBase extends OpMode {
             follower.setPose(ResetPose);
         }
 
-        if (currentGamepad2.circleWasReleased()) {
+        if (currentGamepad2.optionsWasReleased()) {
             autoFlywheelSpeed = !autoFlywheelSpeed;
         }
 
@@ -311,7 +311,7 @@ abstract public class ppTeleopBase extends OpMode {
             }
             if (currentGamepad2.dpad_left)
             {
-                launcher.setNominalRPS(52.5);
+                launcher.setNominalRPS(56);
             }
         } else {
             // 2. Automatic Distance Calculation
