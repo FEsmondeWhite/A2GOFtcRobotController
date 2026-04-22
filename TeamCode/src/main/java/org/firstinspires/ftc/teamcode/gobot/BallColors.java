@@ -72,7 +72,15 @@ public class BallColors {
 
     public void setPatternList(List<Character> patternList) { this.patternList = patternList; }
     public List<Character> getPatternList() { return patternList; }
-    public void incrementPatternIndex() { this.patternIndex++; }
+    // Add this method
+    public int getPatternIndex() {
+        return this.patternIndex;
+    }
+
+    // Ensure your increment logic is there too
+    public void incrementPatternIndex() {
+        patternIndex++;
+    }
     public void resetPatternIndex() { this.patternIndex = 0; }
     public boolean validPatternIndex() { return (patternIndex >= 0 && patternIndex < patternList.size()); }
 
