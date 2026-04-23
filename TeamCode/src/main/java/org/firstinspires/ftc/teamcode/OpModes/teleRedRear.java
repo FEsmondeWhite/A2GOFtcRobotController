@@ -3,7 +3,7 @@ import com.bylazar.configurables.annotations.Configurable;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 
 @Configurable
-@TeleOp(group = "TeleOp",name="TeleOp: Red rear")
+@TeleOp(group = "TeleOp",name="TeleOp Red rear")
 public class teleRedRear extends ppTeleopBase {
 
     public teleRedRear() {

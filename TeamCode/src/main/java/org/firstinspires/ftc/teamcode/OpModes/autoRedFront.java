@@ -3,7 +3,7 @@ import com.bylazar.configurables.annotations.Configurable;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 
 @Configurable
-@Autonomous(group = "Auto",name="Auto: Red front", preselectTeleOp="teleRedFront")
+@Autonomous(group = "Auto",name="Auto Red front", preselectTeleOp="TeleOp Red front")
 public class autoRedFront extends ppAutoBase {
     public autoRedFront() {
         super(2, 1); // (AllianceColor, StartPosition)

@@ -3,7 +3,7 @@ import com.bylazar.configurables.annotations.Configurable;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 
 @Configurable
-@TeleOp(group = "TeleOp",name="TeleOp: Blue front")
+@TeleOp(group = "TeleOp",name="TeleOp Blue front")
 public class teleBlueFront extends ppTeleopBase {
     public teleBlueFront() {
         super(1, 1); // (AllianceColor, StartPosition)

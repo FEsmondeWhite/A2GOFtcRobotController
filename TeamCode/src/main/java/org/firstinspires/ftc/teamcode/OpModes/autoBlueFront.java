@@ -4,7 +4,7 @@ import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 
 @Configurable
-@Autonomous(group = "Auto",name="Auto: Blue front", preselectTeleOp="teleBlueFront")
+@Autonomous(group = "Auto",name="Auto Blue front", preselectTeleOp="TeleOp Blue front")
 public class autoBlueFront extends ppAutoBase {
     public autoBlueFront() {
         super(1, 1); // (AllianceColor, StartPosition)
