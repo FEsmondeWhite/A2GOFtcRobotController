@@ -24,7 +24,7 @@ import java.util.List;
  * ppAutoBase: Sequential Autonomous Base Class
  * Implements a strict "Drive -> Intake -> Reverse -> Sort -> Shoot" handshake logic.
  */
-abstract public class ppAutoBase extends OpMode {
+abstract public class ppSimpleAutoBase extends OpMode {
 
     // --- SUBSYSTEMS ---
     private TimingOptimization timingSystem;
@@ -58,7 +58,7 @@ abstract public class ppAutoBase extends OpMode {
     private Pose shootPose, endPose;
     private Pose stack1StartPose, stack1Ball1Pose, stack1Ball2Pose, stack1Ball3Pose;
 
-    public ppAutoBase(int AllianceColor, int StartPosition) {
+    public ppSimpleAutoBase(int AllianceColor, int StartPosition) {
         this.AllianceColor = AllianceColor;
         this.StartPosition = StartPosition;
         initializeCoordinates();
