@@ -46,6 +46,7 @@ abstract public class ppAutoBase extends OpMode {
     private int shotsFired = 0;
     private boolean stageStarted = false; // Guard for state initialization
     private boolean isIndexing = false;   // Sorter/Launcher handshake flag
+    private boolean needsRefresh = false; // To trigger ball color refreshing.
 
     // --- CONFIGURATION ---
     private boolean isTestMode = true; // Toggle for home testing (disables drive)
@@ -55,7 +56,7 @@ abstract public class ppAutoBase extends OpMode {
 
     // --- COORDINATES ---
     public static Pose startingPose;
-    private Pose shootPose, endPose;
+    private Pose shootPose, endPose, gateOpenPose;
     private Pose stack1StartPose, stack1Ball1Pose, stack1Ball2Pose, stack1Ball3Pose;
 
     public ppAutoBase(int AllianceColor, int StartPosition) {
@@ -178,32 +179,76 @@ abstract public class ppAutoBase extends OpMode {
     }
 
     // --- SUBSYSTEM CONTROL HANDSHAKES ---
-
-    /**
-     * Handles the specific "Wait for Launcher -> Verify Sorter -> Fire" handshake.
-     */
     private void handleSequentialShooting() {
         if (shotsFired < 3) {
-            // Step 1: Ensure sorter has a ball in position
-            if (!isIndexing && !lifter.isBusy()) {
-                sorter.start(1);
-                isIndexing = true;
+
+            // --- 1. POST-LAUNCH SYNCHRONIZATION ---
+            // If the lifter is BUSY, we just wait.
+            if (lifter.isBusy()) return;
+
+            // If the lifter JUST finished, but we haven't updated our inventory yet,
+            // trigger the survey now that the path is clear.
+            if (!sorter.isBusy() && !sorter.balls.isSurveying() && needsRefresh) {
+                sorter.balls.requestSurvey(3);
+                needsRefresh = false; // Flag to ensure we only request once
+                return;
             }
 
-            // Step 2: Fire only if Sorter is finished AND Launcher is at speed
-            if (isIndexing && !sorter.isBusy() && launcher.isReady() && !lifter.isBusy()) {
-                lifter.start();
-                shotsFired++;
-                isIndexing = false;
+            // --- 2. DECISION GATE ---
+            // Do not make ANY decisions until the survey is 100% complete.
+            if (sorter.balls.isSurveying() || sorter.isBusy()) return;
+
+            // --- 3. PRIORITY DECISION TREE ---
+            if (sorter.balls.targetMatchForLaunch()) {
+                if (launcher.isReady()) {
+                    executeLaunch();
+                }
             }
-        } else if (!lifter.isBusy()) {
-            // Transition out once all 3 balls are cleared
-            if (currentState == State.SHOOT_A) currentState = State.TRAJ_2;
+            else if (sorter.balls.targetMatchForLaunch()) {
+                sorter.start(1);
+                // We moved the sorter, so we will need a refresh when it stops
+                needsRefresh = true;
+            }
+            else if (sorter.balls.anyBallReadyForLaunch()) {
+                if (launcher.isReady()) {
+                    executeLaunch();
+                }
+            }
+            else if (sorter.balls.anyBallAvailable()) {
+                sorter.start(1);
+                needsRefresh = true;
+            }
+        }
+        else if (!lifter.isBusy()) {
+            // 1. Cleanup and Power Management
+            launcher.disableMotor(); // Allow flywheel to freewheel safely
+            needsRefresh = true;     // Reset flag for the next shooting cycle
+
+            // 2. State Transition
+            // Since the lifter is internal, we can transition states immediately
+            if (currentState == State.SHOOT_A) {
+                currentState = State.TRAJ_2;
+            }
             else {
+                // Final transition to parking
                 follower.followPath(pathA.get(7), true);
                 currentState = State.TRAJ_7;
             }
         }
+    }
+
+    /**
+     * Updated executeLaunch to handle the refresh flag.
+     */
+    private void executeLaunch() {
+        lifter.start();
+        sorter.balls.clearLaunchSlot();
+        sorter.balls.incrementPatternIndex();
+        shotsFired++;
+
+        // We don't call requestSurvey here because the lifter is now busy.
+        // Instead, we set a flag to trigger it once the lifter is clear.
+        needsRefresh = true;
     }
 
     /**
@@ -226,6 +271,8 @@ abstract public class ppAutoBase extends OpMode {
                 boolean arrived = isTestMode ? (taskTimer.seconds() > 2.0) : !follower.isBusy();
                 if (arrived) {
                     intake.setIntake(-2.0); // Quick reverse pulse
+                    // Trigger the hardware survey to see if a ball actually entered 'In'
+                    sorter.balls.requestSurvey(3);
                     taskTimer.reset();
                     intakeStage = 1;
                 }
@@ -270,6 +317,7 @@ abstract public class ppAutoBase extends OpMode {
             shootPose = (StartPosition == 1) ? new Pose(59, 14, Math.toRadians(115)) : new Pose(58, 85, Math.toRadians(135));
             shootSpeedRPS = (StartPosition == 1) ? fSpeed : rSpeed;
             endPose = (StartPosition == 1) ? new Pose(48, 25, 1.57079) : new Pose(48, 128, 4.71239);
+            gateOpenPose = new Pose(17.5, 70, Math.toRadians(0));
             stack1StartPose = new Pose(42, (StartPosition == 1 ? 36 : 84), Math.toRadians(180));
             stack1Ball1Pose = new Pose(36, (StartPosition == 1 ? 36 : 84), Math.toRadians(180));
             stack1Ball2Pose = new Pose(31, (StartPosition == 1 ? 36 : 84), Math.toRadians(180));
@@ -279,6 +327,7 @@ abstract public class ppAutoBase extends OpMode {
             shootPose = (StartPosition == 1) ? new Pose(86, 14, Math.toRadians(67)) : new Pose(88, 85, Math.toRadians(49));
             shootSpeedRPS = (StartPosition == 1) ? fSpeed : rSpeed;
             endPose = (StartPosition == 1) ? new Pose(96, 25, 1.57079) : new Pose(96, 128, 4.71239);
+            gateOpenPose = new Pose(127.5, 70, Math.toRadians(180));
             stack1StartPose = new Pose(102, (StartPosition == 1 ? 35 : 83), Math.toRadians(0));
             stack1Ball1Pose = new Pose(108, (StartPosition == 1 ? 35 : 83), Math.toRadians(0));
             stack1Ball2Pose = new Pose(113, (StartPosition == 1 ? 35 : 83), Math.toRadians(0));

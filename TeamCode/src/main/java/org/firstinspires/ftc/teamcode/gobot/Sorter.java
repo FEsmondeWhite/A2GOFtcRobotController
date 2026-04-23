@@ -22,7 +22,7 @@ public class Sorter {
     // --- FINAL STABLE PARAMETERS ---
     private final long BASE_BURST_MS = 300;
     private final double SEARCH_POWER = 0.20;
-    private final long DWELL_DURATION_MS = 60; // Slightly longer dwell for safety
+    private final long DWELL_DURATION_MS = 60;
     private final long UNBIND_DURATION = 90;
 
     public Sorter (@NonNull HardwareMap hwMap, Telemetry telemetry) {
@@ -40,13 +40,14 @@ public class Sorter {
         mag5lag = hwMap.get(TouchSensor.class, "mag5lag");
 
         ball_sorter_arm.setDirection(CRServo.Direction.FORWARD);
-
-        // Ensure the servo is awake and stays awake
         ball_sorter_arm.setPwmEnable();
 
+        // Initialize the BallColors database
         balls = new BallColors(hwMap, this.telemetry);
         balls.init();
-        balls.updateColors();
+
+        // Initial "Best of 5" to see what's in the robot at start
+        balls.requestSurvey(5);
 
         sorter_state = 0;
     }
@@ -63,13 +64,7 @@ public class Sorter {
 
     public boolean isBusy() { return (sorter_state != 0); }
 
-    public void addTelemetry() {
-        telemetry.addData("Sorter State", sorter_state);
-        telemetry.addData("Mag Triggered", isAnyMagPressed());
-    }
-
     private boolean isAnyMagPressed() {
-        // Only perform hardware reads if the state machine is looking for them
         if (sorter_state == 3 || sorter_state == 11) {
             return mag7center.isPressed() || mag6center.isPressed() ||
                     mag4lead.isPressed() || mag5lag.isPressed();
@@ -87,11 +82,13 @@ public class Sorter {
             return;
         }
 
-        // 2. STATE MACHINE
+        // Process color surveys only when stationary
+        if (sorter_state == 0) {
+            balls.update();
+        }
+
         switch (sorter_state) {
-            case 0: // IDLE (STABLE)
-                // We keep PWM enabled here so the servo doesn't "jump" when re-activated.
-                // ball_sorter_arm.setPower(0); // Don't call setPower(0) every loop if it's already 0
+            case 0: // IDLE
                 break;
 
             case 1: // START BURST
@@ -115,10 +112,11 @@ public class Sorter {
                 }
                 break;
 
-            case 4: // SETTLE DWELL
-                // Motor power is already 0. We wait for physical momentum to die.
+            case 4: // SETTLE DWELL & DATA SHIFT
                 if (currentTime - sorter_timer_start > DWELL_DURATION_MS) {
-                    balls.updateColors();
+                    // Update the virtual database
+                    balls.shift();
+                    balls.requestSurvey(3); // Best-of-3 refresh to check new positions
                     sorter_state = 0;
                 }
                 break;
@@ -148,5 +146,10 @@ public class Sorter {
                 }
                 break;
         }
+    }
+
+    public void addTelemetry() {
+        telemetry.addData("Sorter State", sorter_state);
+        telemetry.addData("Survey Active", balls.isSurveying());
     }
 }
