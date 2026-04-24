@@ -201,11 +201,14 @@ abstract public class ppAutoBase extends OpMode {
 
             case TRAJ_3: performIntakeStep(3, State.TRAJ_4); break;
             case TRAJ_4: performIntakeStep(4, State.TRAJ_5); break;
-            case TRAJ_5: performIntakeStep(5, State.TRAJ_6); break;
+            case TRAJ_5:
+                performIntakeStep(5, State.TRAJ_6);
+                launcher.enableMotor();
+                break;
 
             case TRAJ_6:
                 if (!follower.isBusy() || isTestMode) {
-                    launcher.enableMotor();
+//                    launcher.enableMotor();
                     follower.followPath(pathA.get(6), true);
                     currentState = State.SHOOT_B;
                     shotsFired = 0;
@@ -224,46 +227,64 @@ abstract public class ppAutoBase extends OpMode {
     }
 
     private void handleSequentialShooting() {
-        if (shotsFired < 3) {
-            if (lifter.isBusy() || sorter.isBusy()) return;
+        // 1. HARDWARE SAFETY LOCK
+        // If the lifter is up or the carousel is spinning, we wait.
+        if (lifter.isBusy() || sorter.isBusy()) return;
 
-            // If we need a refresh, start it and WAIT.
-            if (needsRefresh) {
-                if (!sorter.balls.isSurveying() && !(sorter.isBusy())) {
-                    sorter.balls.requestSurvey(3);
-                } else {
-                    needsRefresh = false;
-                }
-                return; // Exit and wait for survey to finish
-            }
+        // 2. THE MANDATORY NUDGE
+        // This runs immediately after executeLaunch() sets needsRefresh = true.
+        // It physically clears the ball and indexes the next slot.
+        if (needsRefresh) {
+            sorter.start(1);
+            needsRefresh = false; // Control is now with the Sorter; it will trigger its own survey.
+            return;
+        }
+
+        // 3. SENSOR DELAY
+        // Wait for the Sorter's internal survey (triggered in Sorter Case 4) to finish.
+        if (sorter.balls.isSurveying()) return;
+
+        // 4. MAIN DECISION LOOP
+        if (shotsFired < 3) {
+            // Optional Diagnostics
             if (timingSystem.do_telemetry()) {
                 telemetry.addData("Pattern Target", sorter.balls.targetPatternColor());
                 telemetry.addData("Virtual Inventory", Arrays.toString(sorter.balls.getInventory()));
             }
 
-            if (sorter.balls.isSurveying()) return;
+            // --- PRIORITY LOGIC ---
 
-            // Priority logic
+            // A. If the ball in the chamber matches what we want... FIRE.
             if (sorter.balls.targetMatchForLaunch()) {
                 if (launcher.isReady()) executeLaunch();
             }
+            // B. If the target ball is in the 'In' or 'Hold' slots... ROTATE.
             else if (sorter.balls.targetBallAvailableElsewhere()) {
                 sorter.start(1);
+                // Note: sorter.start(1) triggers its own survey, so no needsRefresh needed.
             }
+            // C. If the chamber has A ball, but not THE ball... FIRE anyway to clear it.
             else if (sorter.balls.anyBallReadyForLaunch()) {
                 if (launcher.isReady()) executeLaunch();
             }
+            // D. If we have balls but they aren't in the chamber... ROTATE.
             else if (sorter.balls.anyBallAvailable()) {
                 sorter.start(1);
             }
+            // E. If the sensors literally see nothing left... EXIT.
             else {
-                // If totally empty, we skip this set to avoid getting stuck
                 shotsFired = 3;
             }
-        } else if (!lifter.isBusy()) {
+        }
+
+        // 5. EXIT & CLEANUP
+        // This only triggers once shotsFired >= 3 AND the last "nudge" is complete.
+        else {
             launcher.disableMotor();
-            if (currentState == State.SHOOT_A) currentState = State.TRAJ_2;
-            else {
+            if (currentState == State.SHOOT_A) {
+                currentState = State.TRAJ_2;
+            } else {
+                // Final park
                 follower.followPath(pathA.get(7), true);
                 currentState = State.TRAJ_7;
             }
@@ -272,10 +293,10 @@ abstract public class ppAutoBase extends OpMode {
 
     private void executeLaunch() {
         lifter.start();
-        sorter.balls.launch();
-        sorter.balls.incrementPatternIndex();
+        sorter.balls.launch();            // Sets Out slot to 'N'
+        sorter.balls.incrementPatternIndex(); // Move to next color in P,G,P
         shotsFired++;
-        needsRefresh = true;
+        needsRefresh = true;              // Triggers the "Nudge" in the next loop
     }
 
     private void performIntakeStep(int pathIdx, State nextState) {
