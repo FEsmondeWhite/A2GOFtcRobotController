@@ -45,10 +45,15 @@ public class BallColors {
         hold_Sensor.setProximityThreshold(110);
         out_Sensor.setProximityThreshold(125);
 
-        ballStatusItem = telemetry.addData("Inventory", "In:%c H:%c Out:%c", inventory[0], inventory[1], inventory[2]);
+        ballStatusItem = telemetry.addData("Inventory", "In:%c Hold:%c Out:%c", inventory[0], inventory[1], inventory[2]);
         ballStatusItem.setRetained(true);
     }
 
+    public void forceInitialInventory() {
+        inventory[0] = 'P';
+        inventory[1] = 'G';
+        inventory[2] = 'P';
+    }
     // --- SURVEY LOGIC ---
 
     /**
@@ -56,18 +61,22 @@ public class BallColors {
      * @param samples Number of samples to take (e.g., 5 for start, 3 for quick refresh).
      */
     public void requestSurvey(int samples) {
-        persistentSurvey.reset(samples);
+        // Pass the existing inventory as the seed
+        persistentSurvey.reset(samples, this.inventory);
         surveyInProgress = true;
     }
 
+    // Ensure update() uses the new logic
     public void update() {
         if (surveyInProgress) {
             updateHardware();
             persistentSurvey.addSample(getHardwareColors());
 
             if (persistentSurvey.isComplete()) {
-                inventory = persistentSurvey.getResult();
-                surveyInProgress = false; // Stop hardware polling until requested again
+                Character[] results = persistentSurvey.getResult();
+                // Use System.arraycopy for clean value transfer
+                System.arraycopy(results, 0, inventory, 0, 3);
+                surveyInProgress = false;
             }
         }
         telemetry();
@@ -92,17 +101,19 @@ public class BallColors {
     // --- VIRTUAL INVENTORY MANIPULATION ---
 
     public void shift() {
+        // Standard carousel rotation: 0->1, 1->2, 2->0
+        Character temp = inventory[2];
         inventory[2] = inventory[1]; // Hold -> Out
         inventory[1] = inventory[0]; // In -> Hold
-        inventory[0] = inventory[2]; // Out -> In
+        inventory[0] = temp; // Out -> In
     }
 
-    public void clearLaunchSlot() { inventory[2] = 'N'; }
+    public void launch() { inventory[2] = 'N'; }
 
     public Character getSlot(int i) { return inventory[i]; }
 
     public boolean isSurveying() { return surveyInProgress; }
-
+    public Character[] getInventory() { return inventory; }
     // --- PATTERN LOGIC ---
 
     public void setPatternList(List<Character> list) { this.patternList = list; }
@@ -110,10 +121,11 @@ public class BallColors {
     public void resetPatternIndex() { patternIndex = 0; }
 
     public Character targetPatternColor() {
-        if (patternList != null && patternIndex < patternList.size()) {
-            return patternList.get(patternIndex);
-        }
-        return 'E';
+        if (patternList == null || patternList.isEmpty()) return 'P';
+
+        // Modulo operator ensures the index wraps (0, 1, 2, 0, 1, 2...)
+        int wrapIndex = patternIndex % patternList.size();
+        return patternList.get(wrapIndex);
     }
 
     // --- LOGICAL CHECKS ---
@@ -124,6 +136,14 @@ public class BallColors {
      */
     public boolean anyBallAvailable() {
         return inventory[0] != 'N' || inventory[1] != 'N' || inventory[2] != 'N';
+    }
+    /**
+     * Checks if the target color is specifically in the 'In' or 'Hold' slots.
+     * If this is true, we know we should SORT to bring it to the 'Out' slot.
+     */
+    public boolean targetBallAvailableElsewhere() {
+        char target = targetPatternColor();
+        return inventory[0] == target || inventory[1] == target;
     }
     public boolean anyBallReadyForLaunch() { return inventory[2] != 'N'; }
     public boolean targetMatchForLaunch() { return inventory[2] == targetPatternColor(); }
@@ -138,6 +158,6 @@ public class BallColors {
     }
 
     public void telemetry() {
-        ballStatusItem.setValue(String.format("In:%c H:%c Out:%c", inventory[0], inventory[1], inventory[2]));
+        ballStatusItem.setValue(String.format("In:%c Hold:%c Out:%c", inventory[0], inventory[1], inventory[2]));
     }
 }

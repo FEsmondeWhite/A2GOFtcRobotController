@@ -47,8 +47,8 @@ public class Sorter {
         balls.init();
 
         // Initial "Best of 5" to see what's in the robot at start
-        balls.requestSurvey(5);
-
+        // balls.requestSurvey(5);
+        balls.forceInitialInventory(); // inventory = new char[]{'P', 'G', 'P'};
         sorter_state = 0;
     }
 

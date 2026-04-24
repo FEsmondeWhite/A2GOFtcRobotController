@@ -1,5 +1,6 @@
 package org.firstinspires.ftc.teamcode.OpModes;
 
+import android.util.Size;
 import com.pedropathing.follower.Follower;
 import com.pedropathing.geometry.BezierLine;
 import com.pedropathing.geometry.Pose;
@@ -15,16 +16,15 @@ import org.firstinspires.ftc.teamcode.gobot.Lifter;
 import org.firstinspires.ftc.teamcode.gobot.PoseStorage;
 import org.firstinspires.ftc.teamcode.gobot.Sorter;
 import org.firstinspires.ftc.teamcode.gobot.TimingOptimization;
+import org.firstinspires.ftc.teamcode.gobot.VisionDetection; // Added
 import org.firstinspires.ftc.teamcode.pedroPathing.Constants;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
-/**
- * ppAutoBase: Sequential Autonomous Base Class
- * Implements a strict "Drive -> Intake -> Reverse -> Sort -> Shoot" handshake logic.
- */
 abstract public class ppAutoBase extends OpMode {
+    private boolean isTestMode = true; // Set to false for actual runs
 
     // --- SUBSYSTEMS ---
     private TimingOptimization timingSystem;
@@ -34,30 +34,40 @@ abstract public class ppAutoBase extends OpMode {
     private Sorter sorter;
     private Lifter lifter;
     private Launcher launcher;
+    private VisionDetection vision; // Added
     private LED redLED;
 
     // --- LOGIC & TIMER MANAGEMENT ---
     private final ArrayList<PathChain> pathA = new ArrayList<>();
     private final ElapsedTime matchTimer = new ElapsedTime();
-    private final ElapsedTime taskTimer = new ElapsedTime();   // Stages (Intake/Reverse)
-    private final ElapsedTime shotTimer = new ElapsedTime();   // Shooting safety
+    private final ElapsedTime taskTimer = new ElapsedTime();
 
-    private int intakeStage = 0;      // 0: Drive, 1: Reverse, 2: Sort
+    private int intakeStage = 0;
     private int shotsFired = 0;
-    private boolean stageStarted = false; // Guard for state initialization
-    private boolean isIndexing = false;   // Sorter/Launcher handshake flag
-    private boolean needsRefresh = false; // To trigger ball color refreshing.
+    private boolean stageStarted = false;
+    private boolean needsRefresh = false;
+
+    // --- VISION DATA ---
+    private int patternID = 0;
+    private List<Character> colorPattern;
+    private static final boolean MANUAL_CAMERA = true;
+    private static final Size CAMERA_RESOLUTION = new Size(640, 480);
+    public static int EXPOSURE_MS = 12;
+    public static int GAIN_VAL = 255;
 
     // --- CONFIGURATION ---
-    private boolean isTestMode = true; // Toggle for home testing (disables drive)
     private final int AllianceColor;
     private final int StartPosition;
     private double shootSpeedRPS;
 
     // --- COORDINATES ---
     public static Pose startingPose;
-    private Pose shootPose, endPose, gateOpenPose;
+    private Pose scanAprilTagPose, shootPose, endPose;
     private Pose stack1StartPose, stack1Ball1Pose, stack1Ball2Pose, stack1Ball3Pose;
+
+    // Task Management for Vision
+    enum TaskState { TASK_IDLE, TASK_SCANNING }
+    TaskState taskState = TaskState.TASK_IDLE;
 
     public ppAutoBase(int AllianceColor, int StartPosition) {
         this.AllianceColor = AllianceColor;
@@ -65,12 +75,10 @@ abstract public class ppAutoBase extends OpMode {
         initializeCoordinates();
     }
 
-    // --- OPMODE LIFECYCLE ---
-
     @Override
     public void init() {
         allHubs = hardwareMap.getAll(LynxModule.class);
-        for (LynxModule hub : allHubs) hub.setBulkCachingMode(LynxModule.BulkCachingMode.MANUAL);
+        for (LynxModule hub : allHubs) hub.setBulkCachingMode(LynxModule.BulkCachingMode.AUTO);
 
         timingSystem = new TimingOptimization(telemetry);
         timingSystem.init();
@@ -79,7 +87,9 @@ abstract public class ppAutoBase extends OpMode {
         lifter = new Lifter(); lifter.init(hardwareMap);
         sorter = new Sorter(hardwareMap, telemetry); sorter.init(lifter);
         launcher = new Launcher(); launcher.init(hardwareMap);
-        redLED = hardwareMap.get(LED.class, "lockdown_LED1");
+
+        // Initialize Vision
+        vision = new VisionDetection(hardwareMap, AllianceColor, MANUAL_CAMERA, CAMERA_RESOLUTION, EXPOSURE_MS, GAIN_VAL);
 
         follower = Constants.createFollower(hardwareMap);
         buildPaths();
@@ -90,7 +100,12 @@ abstract public class ppAutoBase extends OpMode {
 
     @Override
     public void start() {
+        // Switch back to MANUAL at start for high-performance loop timing
+        for (LynxModule hub : allHubs) hub.setBulkCachingMode(LynxModule.BulkCachingMode.MANUAL);
+
         matchTimer.reset();
+        launcher.setNominalRPS(shootSpeedRPS);
+        launcher.enableMotor();
     }
 
     @Override
@@ -103,15 +118,15 @@ abstract public class ppAutoBase extends OpMode {
         lifter.update();
         launcher.update();
 
-        // Allow state machine to advance instantly if desk-testing
-        if (isTestMode) follower.breakFollowing();
-
         updatePath();
 
         if (timingSystem.do_telemetry()) {
             telemetry.addData("State", currentState);
-            telemetry.addData("Intake Stage", intakeStage);
             telemetry.addData("Shots Fired", shotsFired);
+            // New Diagnostic Lines
+            telemetry.addData("Target Color", sorter.balls.targetPatternColor());
+            telemetry.addData("Current Slot 2 (Out)", sorter.balls.getSlot(2));
+            sorter.addTelemetry();
             telemetry.update();
         }
         PoseStorage.currentPose = follower.getPose();
@@ -119,23 +134,55 @@ abstract public class ppAutoBase extends OpMode {
 
     // --- MAIN STATE MACHINE ---
 
-    enum State { IDLE, SHOOT_A, TRAJ_2, TRAJ_3, TRAJ_4, TRAJ_5, TRAJ_6, SHOOT_B, TRAJ_7, STOP }
+    enum State { IDLE, TRAJ_0, SCAN, TRAJ_1, SHOOT_A, TRAJ_2, TRAJ_3, TRAJ_4, TRAJ_5, TRAJ_6, SHOOT_B, TRAJ_7, STOP }
     State currentState = State.IDLE;
 
     public void updatePath() {
-        // Emergency stop/park logic
-        if (matchTimer.seconds() >= 28.0 && currentState != State.STOP && currentState != State.TRAJ_7) {
+        if (matchTimer.seconds() >= 28.5 && currentState != State.STOP && currentState != State.TRAJ_7) {
             forcePark();
             return;
         }
 
         switch (currentState) {
             case IDLE:
-                launcher.setNominalRPS(shootSpeedRPS);
-                launcher.enableMotor();
-                follower.followPath(pathA.get(1), true);
-                currentState = State.SHOOT_A;
-                shotsFired = 0;
+                follower.followPath(pathA.get(0), true); // Move to Scan Pose
+                // --- CRITICAL FIX FOR ISSUE 1 ---
+                // Request a hardware survey of the internal slots NOW.
+                // This fills the N, N, N with the actual balls you pre-loaded.
+                sorter.balls.requestSurvey(5);
+//                needsRefresh = false; // We just started one, so handleSequential doesn't need to trigger another yet.
+//                sorter.balls.forceInitialInventory(); // sorter.balls.inventory ={'P', 'G', 'P'}; // Manually override the sensors for testing
+                currentState = State.TRAJ_0;
+                break;
+
+            case TRAJ_0:
+                if (!follower.isBusy() || isTestMode) currentState = State.SCAN;
+                break;
+
+            case SCAN:
+                if (taskState == TaskState.TASK_IDLE) {
+                    taskTimer.reset();
+                    taskState = TaskState.TASK_SCANNING;
+                }
+
+                patternID = vision.getDetectedPatternID();
+                if (patternID != 0 || taskTimer.milliseconds() > 1000) {
+                    // Hand off pattern or default
+                    colorPattern = (patternID != 0) ? vision.getArtifactColorPattern() : Arrays.asList('P', 'G', 'P');
+                    sorter.balls.setPatternList(colorPattern);
+                    sorter.balls.resetPatternIndex();
+
+                    follower.followPath(pathA.get(1), true); // Move to Shoot Pose
+                    currentState = State.TRAJ_1;
+                    taskState = TaskState.TASK_IDLE;
+                }
+                break;
+
+            case TRAJ_1:
+                if ((!follower.isBusy() || isTestMode) && !sorter.balls.isSurveying()) {
+                    vision.closeVision(); // Save CPU
+                    currentState = State.SHOOT_A;
+                }
                 break;
 
             case SHOOT_A:
@@ -152,7 +199,6 @@ abstract public class ppAutoBase extends OpMode {
                 }
                 break;
 
-            // Sequential Intake Steps
             case TRAJ_3: performIntakeStep(3, State.TRAJ_4); break;
             case TRAJ_4: performIntakeStep(4, State.TRAJ_5); break;
             case TRAJ_5: performIntakeStep(5, State.TRAJ_6); break;
@@ -160,7 +206,6 @@ abstract public class ppAutoBase extends OpMode {
             case TRAJ_6:
                 if (!follower.isBusy() || isTestMode) {
                     launcher.enableMotor();
-                    follower.setMaxPower(1.0);
                     follower.followPath(pathA.get(6), true);
                     currentState = State.SHOOT_B;
                     shotsFired = 0;
@@ -178,89 +223,68 @@ abstract public class ppAutoBase extends OpMode {
         }
     }
 
-    // --- SUBSYSTEM CONTROL HANDSHAKES ---
     private void handleSequentialShooting() {
         if (shotsFired < 3) {
+            if (lifter.isBusy() || sorter.isBusy()) return;
 
-            // --- 1. POST-LAUNCH SYNCHRONIZATION ---
-            // If the lifter is BUSY, we just wait.
-            if (lifter.isBusy()) return;
-
-            // If the lifter JUST finished, but we haven't updated our inventory yet,
-            // trigger the survey now that the path is clear.
-            if (!sorter.isBusy() && !sorter.balls.isSurveying() && needsRefresh) {
-                sorter.balls.requestSurvey(3);
-                needsRefresh = false; // Flag to ensure we only request once
-                return;
-            }
-
-            // --- 2. DECISION GATE ---
-            // Do not make ANY decisions until the survey is 100% complete.
-            if (sorter.balls.isSurveying() || sorter.isBusy()) return;
-
-            // --- 3. PRIORITY DECISION TREE ---
-            if (sorter.balls.targetMatchForLaunch()) {
-                if (launcher.isReady()) {
-                    executeLaunch();
+            // If we need a refresh, start it and WAIT.
+            if (needsRefresh) {
+                if (!sorter.balls.isSurveying() && !(sorter.isBusy())) {
+                    sorter.balls.requestSurvey(3);
+                } else {
+                    needsRefresh = false;
                 }
+                return; // Exit and wait for survey to finish
             }
-            else if (sorter.balls.targetMatchForLaunch()) {
+            if (timingSystem.do_telemetry()) {
+                telemetry.addData("Pattern Target", sorter.balls.targetPatternColor());
+                telemetry.addData("Virtual Inventory", Arrays.toString(sorter.balls.getInventory()));
+            }
+
+            if (sorter.balls.isSurveying()) return;
+
+            // Priority logic
+            if (sorter.balls.targetMatchForLaunch()) {
+                if (launcher.isReady()) executeLaunch();
+            }
+            else if (sorter.balls.targetBallAvailableElsewhere()) {
                 sorter.start(1);
-                // We moved the sorter, so we will need a refresh when it stops
-                needsRefresh = true;
             }
             else if (sorter.balls.anyBallReadyForLaunch()) {
-                if (launcher.isReady()) {
-                    executeLaunch();
-                }
+                if (launcher.isReady()) executeLaunch();
             }
             else if (sorter.balls.anyBallAvailable()) {
                 sorter.start(1);
-                needsRefresh = true;
-            }
-        }
-        else if (!lifter.isBusy()) {
-            // 1. Cleanup and Power Management
-            launcher.disableMotor(); // Allow flywheel to freewheel safely
-            needsRefresh = true;     // Reset flag for the next shooting cycle
-
-            // 2. State Transition
-            // Since the lifter is internal, we can transition states immediately
-            if (currentState == State.SHOOT_A) {
-                currentState = State.TRAJ_2;
             }
             else {
-                // Final transition to parking
+                // If totally empty, we skip this set to avoid getting stuck
+                shotsFired = 3;
+            }
+        } else if (!lifter.isBusy()) {
+            launcher.disableMotor();
+            if (currentState == State.SHOOT_A) currentState = State.TRAJ_2;
+            else {
                 follower.followPath(pathA.get(7), true);
                 currentState = State.TRAJ_7;
             }
         }
     }
 
-    /**
-     * Updated executeLaunch to handle the refresh flag.
-     */
     private void executeLaunch() {
         lifter.start();
-        sorter.balls.clearLaunchSlot();
+        sorter.balls.launch();
         sorter.balls.incrementPatternIndex();
         shotsFired++;
-
-        // We don't call requestSurvey here because the lifter is now busy.
-        // Instead, we set a flag to trigger it once the lifter is clear.
         needsRefresh = true;
     }
 
-    /**
-     * Multi-stage Intake logic: Drive -> Pulse Reverse -> Index (Sort)
-     */
     private void performIntakeStep(int pathIdx, State nextState) {
         switch (intakeStage) {
             case 0: // Drive to the ball
                 if (!stageStarted) {
                     intake.setIntake(5.0);
                     if (!isTestMode) {
-                        follower.setMaxPower(0.3);
+                        follower.setMaxPower(0.4);
                         follower.followPath(pathA.get(pathIdx), true);
                     } else {
                         taskTimer.reset();
@@ -268,25 +292,26 @@ abstract public class ppAutoBase extends OpMode {
                     stageStarted = true;
                 }
 
+                // Dwell for 2 seconds in test mode, otherwise wait for Pedro
                 boolean arrived = isTestMode ? (taskTimer.seconds() > 2.0) : !follower.isBusy();
+
                 if (arrived) {
-                    intake.setIntake(-2.0); // Quick reverse pulse
-                    // Trigger the hardware survey to see if a ball actually entered 'In'
-                    sorter.balls.requestSurvey(3);
+                    intake.setIntake(-2.5); // Reverse pulse to clear jams
                     taskTimer.reset();
                     intakeStage = 1;
                 }
                 break;
 
-            case 1: // Reverse Pulse
-                if (taskTimer.milliseconds() > 300) {
+            case 1: // Intake Dwell & Survey Trigger
+                if (taskTimer.milliseconds() > 400) {
                     intake.setIntake(0);
-                    sorter.start(1); // Begin indexing ball
+                    sorter.balls.requestSurvey(3); // Scan now that ball should be inside
+                    sorter.start(1); // Begin indexing
                     intakeStage = 2;
                 }
                 break;
 
-            case 2: // Indexing
+            case 2: // Wait for Sorter
                 if (!sorter.isBusy()) {
                     intakeStage = 0;
                     stageStarted = false;
@@ -296,11 +321,8 @@ abstract public class ppAutoBase extends OpMode {
         }
     }
 
-    // --- UTILITIES ---
-
     private void forcePark() {
         shutdownSubsystems();
-        follower.setMaxPower(1.0);
         follower.followPath(pathA.get(7), true);
         currentState = State.TRAJ_7;
     }
@@ -311,23 +333,23 @@ abstract public class ppAutoBase extends OpMode {
     }
 
     private void initializeCoordinates() {
-        double fSpeed = 56.0; double rSpeed = 57.0;
+        // scanAprilTagPose must be set before buildPaths()
         if (AllianceColor == 1) { // Blue
+            scanAprilTagPose = (StartPosition == 1) ? new Pose(58.5, 25, Math.toRadians(83)) : new Pose(55, 110, Math.toRadians(67));
             startingPose = (StartPosition == 1) ? new Pose(57.5, 9, 1.57079) : new Pose(33.5, 134, 1.57079);
             shootPose = (StartPosition == 1) ? new Pose(59, 14, Math.toRadians(115)) : new Pose(58, 85, Math.toRadians(135));
-            shootSpeedRPS = (StartPosition == 1) ? fSpeed : rSpeed;
+            shootSpeedRPS = (StartPosition == 1) ? 56.0 : 57.0;
             endPose = (StartPosition == 1) ? new Pose(48, 25, 1.57079) : new Pose(48, 128, 4.71239);
-            gateOpenPose = new Pose(17.5, 70, Math.toRadians(0));
             stack1StartPose = new Pose(42, (StartPosition == 1 ? 36 : 84), Math.toRadians(180));
             stack1Ball1Pose = new Pose(36, (StartPosition == 1 ? 36 : 84), Math.toRadians(180));
             stack1Ball2Pose = new Pose(31, (StartPosition == 1 ? 36 : 84), Math.toRadians(180));
             stack1Ball3Pose = new Pose(26, (StartPosition == 1 ? 36 : 84), Math.toRadians(180));
         } else { // Red
-            startingPose = (StartPosition == 1) ? new Pose(144-57.5, 9, 1.57079) : new Pose(144-33.5, 134, 1.57079);
+            scanAprilTagPose = (StartPosition == 1) ? new Pose(85.5, 25, Math.toRadians(97)) : new Pose(90, 110, Math.toRadians(113));
+            startingPose = (StartPosition == 1) ? new Pose(86.5, 9, 1.57079) : new Pose(110.5, 134, 1.57079);
             shootPose = (StartPosition == 1) ? new Pose(86, 14, Math.toRadians(67)) : new Pose(88, 85, Math.toRadians(49));
-            shootSpeedRPS = (StartPosition == 1) ? fSpeed : rSpeed;
+            shootSpeedRPS = (StartPosition == 1) ? 56.0 : 57.0;
             endPose = (StartPosition == 1) ? new Pose(96, 25, 1.57079) : new Pose(96, 128, 4.71239);
-            gateOpenPose = new Pose(127.5, 70, Math.toRadians(180));
             stack1StartPose = new Pose(102, (StartPosition == 1 ? 35 : 83), Math.toRadians(0));
             stack1Ball1Pose = new Pose(108, (StartPosition == 1 ? 35 : 83), Math.toRadians(0));
             stack1Ball2Pose = new Pose(113, (StartPosition == 1 ? 35 : 83), Math.toRadians(0));
@@ -336,14 +358,20 @@ abstract public class ppAutoBase extends OpMode {
     }
 
     public void buildPaths() {
-        follower.setMaxPower(1.0);
-        pathA.add(null);
-        pathA.add(follower.pathBuilder().addPath(new BezierLine(startingPose, shootPose)).setLinearHeadingInterpolation(startingPose.getHeading(), shootPose.getHeading()).build());
+        pathA.clear();
+        // Index 0: Start -> Scan
+        pathA.add(follower.pathBuilder().addPath(new BezierLine(startingPose, scanAprilTagPose)).setLinearHeadingInterpolation(startingPose.getHeading(), scanAprilTagPose.getHeading()).build());
+        // Index 1: Scan -> Shoot
+        pathA.add(follower.pathBuilder().addPath(new BezierLine(scanAprilTagPose, shootPose)).setLinearHeadingInterpolation(scanAprilTagPose.getHeading(), shootPose.getHeading()).build());
+        // Index 2: Shoot -> Stack Start
         pathA.add(follower.pathBuilder().addPath(new BezierLine(shootPose, stack1StartPose)).setLinearHeadingInterpolation(shootPose.getHeading(), stack1StartPose.getHeading()).build());
-        pathA.add(follower.pathBuilder().addPath(new BezierLine(stack1StartPose, stack1Ball1Pose)).setLinearHeadingInterpolation(stack1StartPose.getHeading(), stack1Ball1Pose.getHeading()).build());
-        pathA.add(follower.pathBuilder().addPath(new BezierLine(stack1Ball1Pose, stack1Ball2Pose)).setLinearHeadingInterpolation(stack1Ball1Pose.getHeading(), stack1Ball2Pose.getHeading()).build());
-        pathA.add(follower.pathBuilder().addPath(new BezierLine(stack1Ball2Pose, stack1Ball3Pose)).setLinearHeadingInterpolation(stack1Ball2Pose.getHeading(), stack1Ball3Pose.getHeading()).build());
+        // Index 3, 4, 5: Individual Balls
+        pathA.add(follower.pathBuilder().addPath(new BezierLine(stack1StartPose, stack1Ball1Pose)).setConstantHeadingInterpolation(stack1StartPose.getHeading()).build());
+        pathA.add(follower.pathBuilder().addPath(new BezierLine(stack1Ball1Pose, stack1Ball2Pose)).setConstantHeadingInterpolation(stack1Ball1Pose.getHeading()).build());
+        pathA.add(follower.pathBuilder().addPath(new BezierLine(stack1Ball2Pose, stack1Ball3Pose)).setConstantHeadingInterpolation(stack1Ball2Pose.getHeading()).build());
+        // Index 6: Return to Shoot
         pathA.add(follower.pathBuilder().addPath(new BezierLine(stack1Ball3Pose, shootPose)).setLinearHeadingInterpolation(stack1Ball3Pose.getHeading(), shootPose.getHeading()).build());
+        // Index 7: Final Park
         pathA.add(follower.pathBuilder().addPath(new BezierLine(shootPose, endPose)).setLinearHeadingInterpolation(shootPose.getHeading(), endPose.getHeading()).build());
     }
 }
